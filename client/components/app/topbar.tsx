@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import { BriefcaseBusiness } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,54 +11,44 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export function Topbar() {
+  const { setTheme, theme } = useTheme();
+
   return (
     <header className="sticky top-0 z-20 border-b bg-background/95 px-6 py-3 backdrop-blur">
       <div className="mx-auto flex max-w-[1440px] items-center gap-3">
         <Link href="/" className="mr-1 text-sm font-semibold tracking-tight">
-          WildfireOps
+          FireLens
         </Link>
 
         <Badge variant="secondary" className="h-9 rounded-md px-3 text-sm font-medium">
-          Dataset: Wildfires
+          Santa Rosa Wildfire
         </Badge>
 
-        <Select defaultValue="run-1302">
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select run" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="run-1302">Run 1302</SelectItem>
-            <SelectItem value="run-1303">Run 1303</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Toggle theme"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          >
+            <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          </Button>
 
-        <Button asChild variant="outline" size="icon" className="ml-auto" aria-label="Open jobs">
-          <Link href="/jobs">
-            <BriefcaseBusiness className="h-4 w-4" />
-          </Link>
-        </Button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline">
-              User Menu
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Preferences</DropdownMenuItem>
-            <DropdownMenuItem>Sign out</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                User Menu
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem>Profile</DropdownMenuItem>
+              <DropdownMenuItem>Sign out</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </header>
   );

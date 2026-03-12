@@ -12,20 +12,18 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building } from "@/lib/mock-data";
+import { type RealBuilding, DAMAGE_LABEL } from "@/lib/buildings";
 
 type DetailsDrawerProps = {
-  building: Building | null;
+  building: RealBuilding | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function DetailsDrawer({
-  building,
-  open,
-  onOpenChange,
-}: DetailsDrawerProps) {
+export function DetailsDrawer({ building, open, onOpenChange }: DetailsDrawerProps) {
   const [imageryView, setImageryView] = useState<"pre" | "post">("post");
+
+  const shortId = building?.uid.slice(0, 8) ?? "";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -33,54 +31,41 @@ export function DetailsDrawer({
         <SheetHeader className="border-b px-5 py-4">
           <div className="flex items-start justify-between gap-3 pr-8">
             <div className="space-y-1">
-              <SheetTitle className="text-base">{building?.id ?? "No building selected"}</SheetTitle>
+              <SheetTitle className="font-mono text-base">
+                {building ? shortId + "…" : "No building selected"}
+              </SheetTitle>
               <SheetDescription>
-                {building
-                  ? `${building.address} • confidence ${building.confidence}%`
-                  : "Select a building from the list to inspect details."}
+                {building ? "xBD label" : "Select a building from the list to inspect details."}
               </SheetDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
-                Flag
-              </Button>
-              <Button size="sm">Add Note</Button>
-            </div>
+            <Button variant="outline" size="sm">Flag</Button>
           </div>
         </SheetHeader>
 
         {building ? (
           <div className="h-[calc(100%-94px)] overflow-y-auto px-5 py-4">
             <Tabs defaultValue="overview" className="h-full">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="imagery">Imagery</TabsTrigger>
-                <TabsTrigger value="evidence">Evidence</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
               </TabsList>
 
+              {/* Overview — damage class + UID only */}
               <TabsContent value="overview" className="mt-4 rounded-md border bg-card p-4 text-sm">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Damage class</span>
-                    <Badge>{building.damageClass}</Badge>
+                    <Badge>{DAMAGE_LABEL[building.damage_class]}</Badge>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Source</span>
-                    <span>{building.labelSource}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Run</span>
-                    <span>{building.runId}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Last updated</span>
-                    <span>{building.updatedAt}</span>
+                    <span className="text-muted-foreground">UID</span>
+                    <span className="font-mono text-xs">{building.uid}</span>
                   </div>
                 </div>
               </TabsContent>
 
+              {/* Imagery — full tile PNG for this building's tile */}
               <TabsContent value="imagery" className="mt-4 space-y-3 rounded-md border bg-card p-4">
                 <div className="flex gap-2">
                   <Button
@@ -99,22 +84,19 @@ export function DetailsDrawer({
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex h-36 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-                    {imageryView.toUpperCase()} image A
+                {building.tile_id ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`${building.tile_id}-${building.uid}-${imageryView}`}
+                    src={`/api/building-crop/${building.tile_id}/${building.uid}/${imageryView}`}
+                    alt={`${imageryView}-disaster crop for ${building.uid}`}
+                    className="w-full rounded-md border object-contain"
+                  />
+                ) : (
+                  <div className="flex h-48 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+                    No source imagery available
                   </div>
-                  <div className="flex h-36 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-                    {imageryView.toUpperCase()} image B
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="evidence" className="mt-4 rounded-md border bg-card p-4 text-sm text-muted-foreground">
-                Evidence list placeholder from model and human review artifacts.
-              </TabsContent>
-
-              <TabsContent value="history" className="mt-4 rounded-md border bg-card p-4 text-sm text-muted-foreground">
-                Change log placeholder for edits, notes, and status transitions.
+                )}
               </TabsContent>
             </Tabs>
           </div>

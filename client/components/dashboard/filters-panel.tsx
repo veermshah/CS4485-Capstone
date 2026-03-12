@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -9,37 +9,46 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
-import { damageClasses } from "@/lib/mock-data";
+import { type RealBuilding, DAMAGE_LABEL } from "@/lib/buildings";
 import { cn } from "@/lib/utils";
+
+export const ALL_DAMAGE_CLASSES: RealBuilding["damage_class"][] = [
+  "no_damage",
+  "minor",
+  "major",
+  "destroyed",
+];
 
 type FiltersPanelProps = {
   collapsed: boolean;
   onToggle: () => void;
+  selectedDamageClasses: RealBuilding["damage_class"][];
+  onDamageClassesChange: (classes: RealBuilding["damage_class"][]) => void;
   className?: string;
 };
 
-export function FiltersPanel({ collapsed, onToggle, className }: FiltersPanelProps) {
-  const [selectedDamageClasses, setSelectedDamageClasses] = useState<string[]>([
-    "No Damage",
-    "Minor",
-    "Major",
-  ]);
-  const [confidence, setConfidence] = useState([65]);
-  const [useVlmSource, setUseVlmSource] = useState(true);
-  const [layers, setLayers] = useState({
-    footprints: true,
-    points: true,
-    heatmap: false,
-  });
-
+export function FiltersPanel({
+  collapsed,
+  onToggle,
+  selectedDamageClasses,
+  onDamageClassesChange,
+  className,
+}: FiltersPanelProps) {
   const damageLabel = useMemo(() => {
-    if (!selectedDamageClasses.length) return "None selected";
-    if (selectedDamageClasses.length <= 2) return selectedDamageClasses.join(", ");
+    if (selectedDamageClasses.length === ALL_DAMAGE_CLASSES.length) return "All classes";
+    if (selectedDamageClasses.length <= 2)
+      return selectedDamageClasses.map((c) => DAMAGE_LABEL[c]).join(", ");
     return `${selectedDamageClasses.length} selected`;
   }, [selectedDamageClasses]);
+
+  const toggleDamageClass = (cls: RealBuilding["damage_class"], checked: boolean) => {
+    if (!checked && selectedDamageClasses.length === 1) return; // enforce min 1
+    onDamageClassesChange(
+      checked
+        ? [...selectedDamageClasses, cls]
+        : selectedDamageClasses.filter((c) => c !== cls),
+    );
+  };
 
   if (collapsed) {
     return (
@@ -75,85 +84,25 @@ export function FiltersPanel({ collapsed, onToggle, className }: FiltersPanelPro
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56">
-              {damageClasses.map((className) => (
+              {ALL_DAMAGE_CLASSES.map((cls) => (
                 <DropdownMenuCheckboxItem
-                  key={className}
-                  checked={selectedDamageClasses.includes(className)}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      setSelectedDamageClasses((prev) => [...prev, className]);
-                      return;
-                    }
-
-                    setSelectedDamageClasses((prev) =>
-                      prev.filter((item) => item !== className),
-                    );
-                  }}
+                  key={cls}
+                  checked={selectedDamageClasses.includes(cls)}
+                  onCheckedChange={(checked) => toggleDamageClass(cls, checked)}
+                  disabled={
+                    selectedDamageClasses.length === 1 && selectedDamageClasses[0] === cls
+                  }
                 >
-                  {className}
+                  {DAMAGE_LABEL[cls]}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          <p className="text-xs text-muted-foreground">At least one class must remain selected.</p>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Confidence ({confidence[0]}%)</p>
-          <Slider value={confidence} min={0} max={100} step={1} onValueChange={setConfidence} />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Label source VLM vs FEMA</span>
-            <Switch checked={useVlmSource} onCheckedChange={setUseVlmSource} />
-          </div>
-          <p className="text-xs text-muted-foreground">Current source: {useVlmSource ? "VLM" : "FEMA"}</p>
-        </div>
-
-        <Separator />
-
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Layers</p>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Footprints</span>
-            <Switch
-              checked={layers.footprints}
-              onCheckedChange={(checked) => setLayers((prev) => ({ ...prev, footprints: checked }))}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Points</span>
-            <Switch
-              checked={layers.points}
-              onCheckedChange={(checked) => setLayers((prev) => ({ ...prev, points: checked }))}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Heatmap</span>
-            <Switch
-              checked={layers.heatmap}
-              onCheckedChange={(checked) => setLayers((prev) => ({ ...prev, heatmap: checked }))}
-            />
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="grid grid-cols-3 gap-2">
-          <Button size="sm">Apply</Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setSelectedDamageClasses(["No Damage", "Minor", "Major"]);
-              setConfidence([65]);
-              setUseVlmSource(true);
-              setLayers({ footprints: true, points: true, heatmap: false });
-            }}
-          >
+        <div className="grid grid-cols-2 gap-2">
+          <Button size="sm" onClick={() => onDamageClassesChange([...ALL_DAMAGE_CLASSES])}>
             Reset
           </Button>
           <Button size="sm" variant="secondary" disabled>

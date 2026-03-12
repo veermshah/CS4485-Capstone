@@ -1,14 +1,24 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Building } from "@/lib/mock-data";
+import { type RealBuilding, DAMAGE_LABEL } from "@/lib/buildings";
 import { cn } from "@/lib/utils";
 
 type BuildingsPanelProps = {
-  buildings: Building[];
+  buildings: RealBuilding[];
   selectedBuildingId: string | null;
   onSelectBuilding: (buildingId: string) => void;
   className?: string;
+};
+
+const DAMAGE_BADGE_VARIANT: Record<
+  RealBuilding["damage_class"],
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  no_damage: "secondary",
+  minor: "outline",
+  major: "default",
+  destroyed: "destructive",
 };
 
 export function BuildingsPanel({
@@ -20,33 +30,47 @@ export function BuildingsPanel({
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>Mock Buildings</CardTitle>
+        <CardTitle>
+          Buildings
+          {buildings.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({buildings.length} in view)
+            </span>
+          )}
+        </CardTitle>
       </CardHeader>
       <CardContent className="h-[calc(100%-56px)]">
         <ScrollArea className="h-full pr-2">
           {buildings.length ? (
-            <div className="space-y-2">
-              {buildings.slice(0, 24).map((building) => {
-                const active = selectedBuildingId === building.id;
-
+            <div className="space-y-1.5">
+              {buildings.slice(0, 50).map((building) => {
+                const active = selectedBuildingId === building.building_id;
                 return (
                   <button
-                    key={building.id}
+                    key={building.building_id}
                     type="button"
-                    onClick={() => onSelectBuilding(building.id)}
+                    onClick={() => onSelectBuilding(building.building_id)}
                     className={cn(
-                      "w-full rounded-md border p-3 text-left text-sm transition-colors",
+                      "w-full rounded-md border p-2.5 text-left text-sm transition-colors",
                       active ? "border-primary bg-primary/10" : "hover:bg-muted",
                     )}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{building.id}</span>
-                      <Badge variant="outline">{building.damageClass}</Badge>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {building.uid.slice(0, 8)}…
+                      </span>
+                      <Badge variant={DAMAGE_BADGE_VARIANT[building.damage_class]}>
+                        {DAMAGE_LABEL[building.damage_class]}
+                      </Badge>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">{building.address}</p>
                   </button>
                 );
               })}
+              {buildings.length > 50 && (
+                <p className="py-2 text-center text-xs text-muted-foreground">
+                  Showing 50 of {buildings.length} buildings
+                </p>
+              )}
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

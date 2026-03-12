@@ -6,4 +6,5 @@
 - API Contract：docs/api.md
 - Data & DB Schema：docs/data_schema.md
 - Runbook：docs/runbook.md
+- Tech Stack: docs/tech_stack.md
 

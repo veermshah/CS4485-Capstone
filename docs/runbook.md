@@ -1,14 +1,15 @@
 # Runbook
 
-## Local run (placeholder)
-- Backend: TBD
-- Frontend: TBD
+## Frontend (Local)
 
-## Env vars
-- API_BASE_URL=
-- DB_URL=
-- STORAGE_BUCKET=
+1) Open a terminal and go to the client folder:
+   - `cd client`
 
-## Common issues 
-- Images not loading → check URLs
-- No polygons → check bbox query and buildings data
+2) Install dependencies:
+   - `npm install`
+
+3) Start the dev server:
+   - `npm run dev`
+
+4) Open the URL printed in the terminal.
+

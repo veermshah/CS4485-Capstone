@@ -6,6 +6,7 @@ import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
 import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
 import { useId, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
 import { cn } from "@/lib/utils";
 
 type ImageryMode = "pre" | "post" | "none";
@@ -214,8 +215,8 @@ export function MapPanel({
       map.on("load", async () => {
         // Fetch building data once and cache it
         try {
-          const res = await fetch("/api/buildings");
-          if (res.ok) buildingsDataRef.current = (await res.json()) as GeoJsonFeatureCollection;
+          const geojson = await getBuildingsGeojson();
+          if (geojson) buildingsDataRef.current = geojson;
         } catch { /* silent fallback */ }
 
         setupCustomLayers(map);

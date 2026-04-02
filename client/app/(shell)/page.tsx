@@ -7,6 +7,7 @@ import { DetailsDrawer } from "@/components/dashboard/details-drawer";
 import { FiltersPanel, ALL_DAMAGE_CLASSES } from "@/components/dashboard/filters-panel";
 import { MapPanel } from "@/components/dashboard/map-panel";
 import { type RealBuilding } from "@/lib/buildings";
+import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
 
 export default function DashboardPage() {
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
@@ -19,8 +20,7 @@ export default function DashboardPage() {
 
   // Fetch all buildings once from the API
   useEffect(() => {
-    fetch("/api/buildings")
-      .then((res) => res.ok ? res.json() : null)
+    getBuildingsGeojson()
       .then((geojson) => {
         if (!geojson?.features) return;
         const buildings: RealBuilding[] = (geojson.features as Array<{

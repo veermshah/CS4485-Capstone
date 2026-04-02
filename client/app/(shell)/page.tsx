@@ -60,7 +60,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="min-h-0">
-        <ChatPanel className="h-full" />
+        <ChatPanel className="h-full" selectedBuildingId={selectedBuildingId} />
       </div>
 
       <div className="min-h-0">

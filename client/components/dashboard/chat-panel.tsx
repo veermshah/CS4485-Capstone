@@ -14,13 +14,61 @@ const prompts = [
   "Compare this run with previous run",
 ];
 
-export function ChatPanel({ className }: { className?: string }) {
+type ChatPanelProps = {
+  className?: string;
+  selectedBuildingId: string | null;
+};
+
+type ChatApiResponse = {
+  conversation_id: string;
+  response: string;
+};
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+
+export function ChatPanel({ className, selectedBuildingId }: ChatPanelProps) {
   const [message, setMessage] = useState("");
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<string[]>([
-    "Assistant: Welcome. Ask about wildfire damage trends and building-level evidence.",
-    "You: Which area has the highest destruction density?",
-    "Assistant: Sector NW-4 has the highest destroyed-building concentration.",
+    "Assistant: Select a building, then ask about damage evidence and risk.",
   ]);
+
+  const sendMessage = async (nextMessage: string) => {
+    const text = nextMessage.trim();
+    if (!text || !selectedBuildingId || isSending) return;
+
+    setMessages((prev) => [...prev, `You: ${text}`]);
+    setMessage("");
+    setIsSending(true);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/v1/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          building_id: selectedBuildingId,
+          conversation_id: conversationId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Chat API failed (${response.status})`);
+      }
+
+      const payload = (await response.json()) as ChatApiResponse;
+      setConversationId(payload.conversation_id);
+      setMessages((prev) => [...prev, `Assistant: ${payload.response}`]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        "Assistant: I could not reach the backend chat service. Check backend server and URL.",
+      ]);
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   return (
     <Card className={cn("h-full", className)}>
@@ -41,7 +89,15 @@ export function ChatPanel({ className }: { className?: string }) {
 
         <div className="flex flex-wrap gap-2">
           {prompts.map((prompt) => (
-            <Badge key={prompt} variant="secondary" className="cursor-pointer px-3 py-1">
+            <Badge
+              key={prompt}
+              variant="secondary"
+              className="cursor-pointer px-3 py-1"
+              onClick={() => {
+                if (!selectedBuildingId) return;
+                void sendMessage(prompt);
+              }}
+            >
               {prompt}
             </Badge>
           ))}
@@ -51,18 +107,29 @@ export function ChatPanel({ className }: { className?: string }) {
           <Input
             value={message}
             onChange={(event) => setMessage(event.target.value)}
+            disabled={!selectedBuildingId || isSending}
             placeholder="Ask about this wildfire run..."
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void sendMessage(message);
+              }
+            }}
           />
           <Button
+            disabled={!selectedBuildingId || isSending || !message.trim()}
             onClick={() => {
-              if (!message.trim()) return;
-              setMessages((prev) => [...prev, `You: ${message.trim()}`]);
-              setMessage("");
+              void sendMessage(message);
             }}
           >
-            Send
+            {isSending ? "Sending..." : "Send"}
           </Button>
         </div>
+        {!selectedBuildingId && (
+          <p className="text-xs text-muted-foreground">
+            Select a building on the map or in the list to start contextual chat.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

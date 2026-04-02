@@ -1,4 +1,4 @@
-# Demo Plan (Final)
+# Demo Plan 
 
 ## 1. Goal
 Demonstrate an end-to-end workflow for disaster damage assessment using xView2 (Santa Rosa wildfire):
@@ -33,12 +33,12 @@ Success criteria:
 Success criteria:
 - Buildings are correctly visualized as boundaries/annotations on the map.
 
-### Step D — Click-to-inspect (building detail)
+### Step D — Click-to-inspect
 7. Click one building annotation to open a detail view/popup.
 8. Show:
    - pre-disaster crop (image)
    - post-disaster crop (image)
-   - (if available) predicted `damage_class` + `confidence`
+   
 
 Success criteria:
 - At least one building can be inspected with pre/post crops visible.
@@ -49,7 +49,7 @@ Success criteria:
    - total buildings (if available)
 
 Success criteria:
-- Stats endpoint or stats UI returns reasonable counts (or shows placeholder gracefully).
+- Stats endpoint or stats UI returns reasonable counts.
 
 ### Step F (Optional) — Chatbot query
 10. Ask a simple query:
@@ -73,7 +73,7 @@ Success criteria:
 - Outputs (demo):
   - building annotations on map
   - pre/post crops in detail view
-  - (optional) predictions: `damage_class` + `confidence`
+  
 
 ---
 
@@ -85,7 +85,7 @@ Success criteria:
 
 ---
 
-## 5. Pre-demo Checklist (Do this before presenting)
+## 5. Pre-demo Checklist
 - Frontend runs locally:
   - `cd client`
   - `npm install`
@@ -102,19 +102,6 @@ Success criteria:
 
 ---
 
-## 6. Backup Plan (if something breaks)
-If predictions or backend are not ready:
-- still demo the UI rubric items:
-  - general map view
-  - pre/post layers
-  - building annotations
-  - click-to-inspect shows pre/post crops
-- explain that prediction fields will appear once batch inference output is uploaded.
-
-If GCS access fails:
-- use a local sample folder of crops + a small sample CSV (5–10 buildings) to demo the same UI flow.
-
----
 
 ## 7. Definition of Demo Success
 At minimum, we can complete Steps A–D end-to-end (map → toggle layers → buildings → click → pre/post crops) in under 2 minutes.

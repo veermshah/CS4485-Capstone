@@ -13,6 +13,8 @@ import fs from "fs";
 import path from "path";
 
 const LABELS_DIR = path.join(process.cwd(), "..", "data", "labels");
+const BUILDINGS_CACHE_TTL_MS = 10 * 60 * 1000;
+const BUILDINGS_CACHE_CONTROL = "public, max-age=300, s-maxage=600, stale-while-revalidate=86400";
 
 type XbdFeature = {
   properties: { feature_type: string; subtype: string; uid: string };
@@ -51,11 +53,15 @@ function wktPolygonToCoords(wkt: string): number[][][] | null {
 
 // Module-level cache
 let _geojsonCache: string | null = null;
+let _geojsonCacheAt = 0;
 
 export async function GET() {
-  if (_geojsonCache) {
+  if (_geojsonCache && Date.now() - _geojsonCacheAt < BUILDINGS_CACHE_TTL_MS) {
     return new NextResponse(_geojsonCache, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": BUILDINGS_CACHE_CONTROL,
+      },
     });
   }
 
@@ -110,8 +116,12 @@ export async function GET() {
   });
 
   _geojsonCache = geojson;
+  _geojsonCacheAt = Date.now();
 
   return new NextResponse(geojson, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": BUILDINGS_CACHE_CONTROL,
+    },
   });
 }

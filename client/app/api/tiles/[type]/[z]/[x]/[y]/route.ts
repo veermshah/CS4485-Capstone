@@ -23,11 +23,40 @@ const TILE_SIZE = 256;
 const SOURCE_SIZE = 1024;
 const MIN_ZOOM = 16;
 const MAX_ZOOM = 18;
+const TILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TILE_CACHE_MAX_ENTRIES = 2000;
 
 type Params = { type: string; z: string; x: string; y: string };
 
 // In-memory tile cache: key → PNG buffer
-const tileCache = new Map<string, Buffer>();
+const tileCache = new Map<string, { value: Buffer; createdAt: number }>();
+
+function getCachedTile(cacheKey: string): Buffer | null {
+  const entry = tileCache.get(cacheKey);
+  if (!entry) return null;
+
+  if (Date.now() - entry.createdAt > TILE_CACHE_TTL_MS) {
+    tileCache.delete(cacheKey);
+    return null;
+  }
+
+  // Reinsert to approximate LRU behavior.
+  tileCache.delete(cacheKey);
+  tileCache.set(cacheKey, entry);
+  return entry.value;
+}
+
+function setCachedTile(cacheKey: string, value: Buffer): void {
+  if (tileCache.has(cacheKey)) tileCache.delete(cacheKey);
+
+  tileCache.set(cacheKey, { value, createdAt: Date.now() });
+
+  while (tileCache.size > TILE_CACHE_MAX_ENTRIES) {
+    const oldestKey = tileCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    tileCache.delete(oldestKey);
+  }
+}
 
 // A 256×256 fully-transparent PNG returned for tiles with no data.
 // Generated once and reused — Mapbox decodes it cleanly and renders nothing.
@@ -66,8 +95,8 @@ export async function GET(
   }
 
   const cacheKey = `${type}/${z}/${x}/${y}`;
-  if (tileCache.has(cacheKey)) {
-    const cached = tileCache.get(cacheKey)!;
+  const cached = getCachedTile(cacheKey);
+  if (cached) {
     return pngResponse(cached);
   }
 
@@ -131,7 +160,7 @@ export async function GET(
     .png()
     .toBuffer();
 
-  tileCache.set(cacheKey, output);
+  setCachedTile(cacheKey, output);
 
   return pngResponse(output);
 }
@@ -141,7 +170,7 @@ function pngResponse(buf: Buffer) {
     status: 200,
     headers: {
       "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=86400",
+      "Cache-Control": "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800, immutable",
     },
   });
 }

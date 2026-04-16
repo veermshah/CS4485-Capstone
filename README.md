@@ -19,9 +19,9 @@
 
 ## Current Demo Status
 - Map loads on the deployed site
-- Pre/Post imagery layers are available (or in progress)
+- Pre/Post imagery layers are available
 - Building annotations are visible (polygons/boxes)
-- Click a building to view pre/post crops (predictions may be partial)
+- Click a building to view pre/post crops
 
 ## What this folder is for
 These documents are the single source of truth for integration across the frontend dashboard, VLM pipeline, backend/API, and evaluation.

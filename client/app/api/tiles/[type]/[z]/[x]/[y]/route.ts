@@ -166,7 +166,7 @@ export async function GET(
 }
 
 function pngResponse(buf: Buffer) {
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     status: 200,
     headers: {
       "Content-Type": "image/png",

@@ -27,7 +27,20 @@ export async function GET(
     return new NextResponse("Invalid tileId", { status: 400 });
   }
 
-  const filename = `images/santa-rosa-wildfire_${tileId}_${type}_disaster.png`;
-  const targetUrl = buildDataObjectUrl(filename);
-  return NextResponse.redirect(targetUrl, { status: 307 });
+  const filename = `santa-rosa-wildfire_${tileId}_${type}_disaster.png`;
+  const filePath = path.join(IMAGES_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
+  const buffer = fs.readFileSync(filePath);
+
+  return new NextResponse(new Uint8Array(buffer), {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
 }

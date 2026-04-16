@@ -22,6 +22,19 @@ export async function GET(
     return new NextResponse("Invalid type", { status: 400 });
   }
 
-  const targetUrl = buildDataObjectUrl(`crops/${uid}/${type}.png`);
-  return NextResponse.redirect(targetUrl, { status: 307 });
+  const filePath = path.join(CROPS_DIR, uid, `${type}.png`);
+
+  if (!fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
+  const buffer = fs.readFileSync(filePath);
+
+  return new NextResponse(new Uint8Array(buffer), {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
 }

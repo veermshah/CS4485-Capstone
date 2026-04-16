@@ -1,5 +1,6 @@
 /**
- * Serves the full 1024×1024 source PNG for a given tile and disaster type.
+ * Redirects to the full 1024x1024 source PNG for a given tile and disaster type
+ * in object storage.
  *
  * GET /api/source-image/[tileId]/[type]
  *   tileId = zero-padded 8-digit tile number (e.g. "00000000")
@@ -7,10 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-
-const IMAGES_DIR = path.join(process.cwd(), "..", "data", "images");
+import { buildDataObjectUrl } from "@/lib/server/remote-data";
 
 type Params = { tileId: string; type: string };
 

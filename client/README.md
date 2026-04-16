@@ -2,6 +2,21 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+### Configure Remote Dataset
+
+Set the bucket base URL in `client/.env.local`:
+
+```bash
+FIRELENS_DATA_BASE_URL=https://a23c3afdfb9d5e504682c1c772cc2e39.r2.cloudflarestorage.com/firelens-data
+```
+
+The app will fetch:
+- `dataset_records.csv`
+- `labels/santa-rosa-wildfire_*_post_disaster.json`
+- `labels/santa-rosa-wildfire_*_{pre|post}_disaster.json`
+- `images/santa-rosa-wildfire_*_{pre|post}_disaster.png`
+- `crops/{uid}/{pre|post}.png`
+
 First, run the development server:
 
 ```bash

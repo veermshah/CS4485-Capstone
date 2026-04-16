@@ -9,15 +9,15 @@ import { NextResponse } from "next/server";
 import { getAllTileMetadata } from "@/lib/server/tile-metadata";
 
 export async function GET() {
-  const tiles = getAllTileMetadata();
+  const tiles = await getAllTileMetadata();
 
   const summary = tiles.map((t) => ({
     id: t.id,
     pre: t.pre
-      ? { corners: t.pre.corners, imagePath: t.pre.imagePath }
+      ? { corners: t.pre.corners, imageUrl: t.pre.imageUrl }
       : null,
     post: t.post
-      ? { corners: t.post.corners, imagePath: t.post.imagePath }
+      ? { corners: t.post.corners, imageUrl: t.post.imageUrl }
       : null,
   }));
 

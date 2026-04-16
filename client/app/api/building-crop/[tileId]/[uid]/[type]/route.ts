@@ -8,33 +8,36 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { buildDataObjectUrl } from "@/lib/server/remote-data";
+import fs from "fs";
+import path from "path";
+
+const CROPS_DIR = path.join(process.cwd(), "..", "output", "crops");
 
 type Params = { tileId: string; uid: string; type: string };
 
 export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<Params> },
+    _req: NextRequest,
+    { params }: { params: Promise<Params> },
 ) {
-  const { uid, type } = await params;
+    const { uid, type } = await params;
 
-  if (type !== "pre" && type !== "post") {
-    return new NextResponse("Invalid type", { status: 400 });
-  }
+    if (type !== "pre" && type !== "post") {
+        return new NextResponse("Invalid type", { status: 400 });
+    }
 
-  const filePath = path.join(CROPS_DIR, uid, `${type}.png`);
+    const filePath = path.join(CROPS_DIR, uid, `${type}.png`);
 
-  if (!fs.existsSync(filePath)) {
-    return new NextResponse("Not found", { status: 404 });
-  }
+    if (!fs.existsSync(filePath)) {
+        return new NextResponse("Not found", { status: 404 });
+    }
 
-  const buffer = fs.readFileSync(filePath);
+    const buffer = fs.readFileSync(filePath);
 
-  return new NextResponse(new Uint8Array(buffer), {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=86400",
-    },
-  });
+    return new NextResponse(new Uint8Array(buffer), {
+        status: 200,
+        headers: {
+            "Content-Type": "image/png",
+            "Cache-Control": "public, max-age=86400",
+        },
+    });
 }

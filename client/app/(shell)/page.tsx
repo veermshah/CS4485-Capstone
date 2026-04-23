@@ -48,8 +48,8 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="grid grid-cols-[minmax(0,1.65fr)_minmax(340px,1fr)] grid-rows-[620px_320px] gap-4">
-      <div className="min-h-0">
+    <div className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,1fr)] grid-rows-[700px_240px] gap-4">
+      <div className="col-start-1 row-start-1 min-h-0">
         <MapPanel
           selectedBuildingId={selectedBuildingId}
           onSelectBuilding={setSelectedBuildingId}
@@ -59,11 +59,11 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="min-h-0">
+      <div className="col-start-1 row-start-2 min-h-0">
         <ChatPanel className="h-full" selectedBuildingId={selectedBuildingId} />
       </div>
 
-      <div className="min-h-0">
+      <div className="col-start-2 row-start-1 min-h-0">
         <BuildingsPanel
           buildings={visibleBuildings}
           selectedBuildingId={selectedBuildingId}
@@ -72,7 +72,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="min-h-0">
+      <div className="col-start-2 row-start-2 min-h-0">
         <FiltersPanel
           collapsed={filtersCollapsed}
           onToggle={() => setFiltersCollapsed((prev) => !prev)}

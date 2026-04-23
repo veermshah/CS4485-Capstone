@@ -5,7 +5,7 @@
  *   type  = "pre" | "post"
  *   z/x/y = standard Web Mercator tile coordinates
  *
- * Only zoom levels 16-18 are processed (source imagery is ~0.47 m/px which
+ * Zoom levels 14-18 are processed (source imagery is ~0.47 m/px which
  * aligns to zoom 18 at this latitude). Mapbox overzooms above 18 client-side.
  *
  * For each request the server:
@@ -21,7 +21,7 @@ import { findOverlappingTiles, type TileCorners } from "@/lib/server/tile-metada
 
 const TILE_SIZE = 256;
 const SOURCE_SIZE = 1024;
-const MIN_ZOOM = 16;
+const MIN_ZOOM = 14;
 const MAX_ZOOM = 18;
 const TILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TILE_CACHE_MAX_ENTRIES = 2000;

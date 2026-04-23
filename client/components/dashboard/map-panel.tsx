@@ -38,6 +38,8 @@ type MapboxWithAccessToken = typeof import("mapbox-gl") & { accessToken: string 
 type GeoJsonFeatureCollection = { type: string; features: unknown[] };
 
 const BASE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
+const MAP_BOUNDS: [[number, number], [number, number]] = [[-123.05, 38.2], [-122.35, 38.7]];
+const MAP_MIN_ZOOM = 11;
 
 const IMAGERY_BUTTONS: { mode: ImageryMode; label: string }[] = [
   { mode: "pre",  label: "Pre"  },
@@ -85,7 +87,7 @@ export function MapPanel({
       map.addSource("imagery-pre", {
         type: "raster",
         tiles: [`${window.location.origin}/api/tiles/pre/{z}/{x}/{y}`],
-        tileSize: 256, minzoom: 18, maxzoom: 18,
+        tileSize: 256, minzoom: 14, maxzoom: 18,
         attribution: "xBD / xView2 pre-disaster imagery",
       });
     }
@@ -93,7 +95,7 @@ export function MapPanel({
       map.addSource("imagery-post", {
         type: "raster",
         tiles: [`${window.location.origin}/api/tiles/post/{z}/{x}/{y}`],
-        tileSize: 256, minzoom: 18, maxzoom: 18,
+        tileSize: 256, minzoom: 14, maxzoom: 18,
         attribution: "xBD / xView2 post-disaster imagery",
       });
     }
@@ -182,7 +184,8 @@ export function MapPanel({
         style: BASE_STYLE,
         center: [-122.7144, 38.4403],
         zoom: 13,
-        maxBounds: [[-123.05, 38.2], [-122.35, 38.7]],
+        minZoom: MAP_MIN_ZOOM,
+        maxBounds: MAP_BOUNDS,
       });
 
       mapRef.current.addControl(new mapboxgl.NavigationControl(), "top-right");

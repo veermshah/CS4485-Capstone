@@ -3,16 +3,11 @@
  * 1024×1024 source tile using a least-squares affine transform fitted from
  * building pixel↔lng_lat coordinate pairs.
  *
- * Results are module-level cached so the filesystem is only read once per
- * server process lifetime.
+ * Results are module-level cached so object storage metadata is only fetched
+ * once per server process lifetime.
  */
 
-import fs from "fs";
-import path from "path";
-
-const DATA_DIR = path.join(process.cwd(), "..", "data");
-const LABELS_DIR = path.join(DATA_DIR, "labels");
-const IMAGES_DIR = path.join(DATA_DIR, "images");
+import { buildDataObjectUrl, fetchDataJson, getTileIdsFromDataset } from "@/lib/server/remote-data";
 
 export type TileCorners = {
   topLeft: [number, number]; // [lng, lat]
@@ -23,8 +18,8 @@ export type TileCorners = {
 
 export type TileMetadata = {
   id: string;
-  pre: { imagePath: string; corners: TileCorners } | null;
-  post: { imagePath: string; corners: TileCorners } | null;
+  pre: { imageUrl: string; corners: TileCorners } | null;
+  post: { imageUrl: string; corners: TileCorners } | null;
 };
 
 type XbdFeature = {
@@ -132,14 +127,7 @@ function fitAffineTransform(
   ];
 }
 
-function computeCorners(labelPath: string): TileCorners | null {
-  let raw: XbdLabel;
-  try {
-    raw = JSON.parse(fs.readFileSync(labelPath, "utf8")) as XbdLabel;
-  } catch {
-    return null;
-  }
-
+function computeCorners(raw: XbdLabel): TileCorners | null {
   const lngLatFeatures = raw.features?.lng_lat ?? [];
   const xyFeatures = raw.features?.xy ?? [];
 
@@ -172,61 +160,79 @@ function computeCorners(labelPath: string): TileCorners | null {
   };
 }
 
-// Module-level cache — populated once per server process
-let _cache: TileMetadata[] | null = null;
+// Module-level cache — populated once per server process.
+let _cachePromise: Promise<TileMetadata[]> | null = null;
 
-export function getAllTileMetadata(): TileMetadata[] {
-  if (_cache) return _cache;
-
-  const files = fs.readdirSync(LABELS_DIR);
-
-  // Collect unique tile IDs
-  const ids = new Set<string>();
-  for (const f of files) {
-    const m = f.match(/^santa-rosa-wildfire_(\d+)_(?:pre|post)_disaster\.json$/);
-    if (m) ids.add(m[1]);
+async function fetchLabel(tileId: string, type: "pre" | "post"): Promise<XbdLabel | null> {
+  const objectPath = `labels/santa-rosa-wildfire_${tileId}_${type}_disaster.json`;
+  try {
+    return await fetchDataJson<XbdLabel>(objectPath);
+  } catch {
+    return null;
   }
+}
 
-  _cache = Array.from(ids).map((id): TileMetadata => {
-    const preLabel = path.join(LABELS_DIR, `santa-rosa-wildfire_${id}_pre_disaster.json`);
-    const postLabel = path.join(LABELS_DIR, `santa-rosa-wildfire_${id}_post_disaster.json`);
-    const preImage = path.join(IMAGES_DIR, `santa-rosa-wildfire_${id}_pre_disaster.png`);
-    const postImage = path.join(IMAGES_DIR, `santa-rosa-wildfire_${id}_post_disaster.png`);
+export function getAllTileMetadata(): Promise<TileMetadata[]> {
+  if (_cachePromise) return _cachePromise;
 
-    const preCorners  = fs.existsSync(preLabel)  ? computeCorners(preLabel)  : null;
-    const postCorners = fs.existsSync(postLabel) ? computeCorners(postLabel) : null;
+  _cachePromise = (async () => {
+    const ids = await getTileIdsFromDataset();
 
-    // If one label file has too few buildings to fit the affine transform,
-    // fall back to the other's corners — pre and post cover the same area.
-    const corners = preCorners ?? postCorners;
+    const tiles = await Promise.all(
+      ids.map(async (id): Promise<TileMetadata> => {
+        const [preLabel, postLabel] = await Promise.all([
+          fetchLabel(id, "pre"),
+          fetchLabel(id, "post"),
+        ]);
 
-    return {
-      id,
-      pre:  corners && fs.existsSync(preImage)  ? { imagePath: preImage,  corners } : null,
-      post: corners && fs.existsSync(postImage) ? { imagePath: postImage, corners } : null,
-    };
-  });
+        const preCorners = preLabel ? computeCorners(preLabel) : null;
+        const postCorners = postLabel ? computeCorners(postLabel) : null;
 
-  return _cache;
+        // If one label file has too few buildings to fit the affine transform,
+        // fall back to the other's corners — pre and post cover the same area.
+        const corners = preCorners ?? postCorners;
+
+        return {
+          id,
+          pre: corners
+            ? {
+                imageUrl: buildDataObjectUrl(`images/santa-rosa-wildfire_${id}_pre_disaster.png`),
+                corners,
+              }
+            : null,
+          post: corners
+            ? {
+                imageUrl: buildDataObjectUrl(`images/santa-rosa-wildfire_${id}_post_disaster.png`),
+                corners,
+              }
+            : null,
+        };
+      }),
+    );
+
+    return tiles;
+  })();
+
+  return _cachePromise;
 }
 
 /**
  * Find all source tiles (for `type`) whose bounding box overlaps a given
  * Web Mercator tile specified by z/x/y.
  */
-export function findOverlappingTiles(
+export async function findOverlappingTiles(
   type: "pre" | "post",
   z: number,
   x: number,
   y: number,
-): { imagePath: string; corners: TileCorners }[] {
+): Promise<{ imageUrl: string; corners: TileCorners }[]> {
   const west = tile2lng(x, z);
   const east = tile2lng(x + 1, z);
   const north = tile2lat(y, z);
   const south = tile2lat(y + 1, z);
 
-  const all = getAllTileMetadata();
-  const results: { imagePath: string; corners: TileCorners }[] = [];
+  const all = await getAllTileMetadata();
+  const results: { imageUrl: string; corners: TileCorners }[] = [];
 
   for (const tile of all) {
     const entry = type === "pre" ? tile.pre : tile.post;

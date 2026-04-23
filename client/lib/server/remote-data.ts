@@ -1,8 +1,8 @@
-console.log("BASE URL:", process.env.FIRELENS_DATA_BASE_URL);
-const RAW_DATA_BASE_URL =
-  process.env.FIRELENS_DATA_BASE_URL || process.env.NEXT_PUBLIC_FIRELENS_DATA_BASE_URL || "";
-
-const DATA_BASE_URL = RAW_DATA_BASE_URL.replace(/\/+$/, "");
+function getResolvedDataBaseUrl(): string {
+  const raw =
+    process.env.FIRELENS_DATA_BASE_URL || process.env.NEXT_PUBLIC_FIRELENS_DATA_BASE_URL || "";
+  return raw.replace(/\/+$/, "");
+}
 
 function quoteRegexChar(ch: string): string {
   return /[.*+?^${}()|[\]\\]/.test(ch) ? `\\${ch}` : ch;
@@ -72,22 +72,24 @@ function toDigitsOnlyTileId(rawTileId: string | undefined): string | null {
 }
 
 function ensureDataBaseUrl() {
-  if (!DATA_BASE_URL) {
+  const dataBaseUrl = getResolvedDataBaseUrl();
+  if (!dataBaseUrl) {
     throw new Error(
       "Missing FIRELENS_DATA_BASE_URL (or NEXT_PUBLIC_FIRELENS_DATA_BASE_URL). Set it to your bucket base URL.",
     );
   }
+
+  return dataBaseUrl;
 }
 
 export function getDataBaseUrl(): string {
-  ensureDataBaseUrl();
-  return DATA_BASE_URL;
+  return ensureDataBaseUrl();
 }
 
 export function buildDataObjectUrl(objectPath: string): string {
-  ensureDataBaseUrl();
+  const dataBaseUrl = ensureDataBaseUrl();
   const cleanPath = objectPath.replace(/^\/+/, "");
-  return `${DATA_BASE_URL}/${cleanPath}`;
+  return `${dataBaseUrl}/${cleanPath}`;
 }
 
 export async function fetchDataJson<T>(objectPath: string): Promise<T> {
@@ -111,7 +113,10 @@ export function getDatasetRows(): Promise<Array<Record<string, string>>> {
       }
       const csvText = await response.text();
       return parseCsv(csvText);
-    })();
+    })().catch((err) => {
+      datasetRowsPromise = null;
+      throw err;
+    });
   }
 
   return datasetRowsPromise;
@@ -131,7 +136,10 @@ export function getTileIdsFromDataset(): Promise<string[]> {
       }
 
       return Array.from(ids);
-    })();
+    })().catch((err) => {
+      tileIdsPromise = null;
+      throw err;
+    });
   }
 
   return tileIdsPromise;

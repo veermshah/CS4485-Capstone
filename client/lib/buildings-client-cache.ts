@@ -8,8 +8,17 @@ let buildingsPromise: Promise<GeoJsonFeatureCollection | null> | null = null;
 export function getBuildingsGeojson(): Promise<GeoJsonFeatureCollection | null> {
   if (!buildingsPromise) {
     buildingsPromise = fetch("/api/buildings", { cache: "force-cache" })
-      .then((res) => (res.ok ? (res.json() as Promise<GeoJsonFeatureCollection>) : null))
-      .catch(() => null);
+      .then((res) => {
+        if (!res.ok) {
+          buildingsPromise = null;
+          return null;
+        }
+        return res.json() as Promise<GeoJsonFeatureCollection>;
+      })
+      .catch(() => {
+        buildingsPromise = null;
+        return null;
+      });
   }
   return buildingsPromise;
 }

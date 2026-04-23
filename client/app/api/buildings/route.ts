@@ -49,6 +49,30 @@ function wktPolygonToCoords(wkt: string): number[][][] | null {
   return [ring];
 }
 
+/** Compute a simple centroid from a polygon ring (lng, lat pairs). */
+function ringCentroid(ring: number[][]): { lng: number; lat: number } | null {
+  if (!ring.length) return null;
+
+  // xBD polygons typically repeat first point at the end; ignore duplicate closure.
+  const closed = ring.length > 1;
+  const last = ring[ring.length - 1];
+  const first = ring[0];
+  const hasDuplicateClose =
+    closed && first[0] === last[0] && first[1] === last[1];
+  const points = hasDuplicateClose ? ring.slice(0, -1) : ring;
+  if (!points.length) return null;
+
+  const sum = points.reduce(
+    (acc, point) => ({ lng: acc.lng + point[0], lat: acc.lat + point[1] }),
+    { lng: 0, lat: 0 },
+  );
+
+  return {
+    lng: sum.lng / points.length,
+    lat: sum.lat / points.length,
+  };
+}
+
 // Module-level cache
 let _geojsonCache: string | null = null;
 let _geojsonCacheAt = 0;
@@ -81,6 +105,7 @@ export async function GET() {
 
       const coords = wktPolygonToCoords(feat.wkt);
       if (!coords) continue;
+      const centroid = ringCentroid(coords[0]);
 
       const subtype = feat.properties.subtype ?? "un-classified";
       const damageClass = SUBTYPE_TO_DAMAGE[subtype] ?? "no_damage";
@@ -93,6 +118,8 @@ export async function GET() {
           tile_id: tileId,
           subtype,
           damage_class: damageClass,
+          centroid_lng: centroid?.lng ?? null,
+          centroid_lat: centroid?.lat ?? null,
           // building_id mirrors the uid so existing map-panel click/hover logic works
           building_id: feat.properties.uid,
           confidence: 1,

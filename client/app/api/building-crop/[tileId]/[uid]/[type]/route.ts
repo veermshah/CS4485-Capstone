@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { buildDataObjectUrl } from "@/lib/server/remote-data";
 
 const CROPS_DIR = path.join(process.cwd(), "..", "output", "crops");
 
@@ -23,6 +24,27 @@ export async function GET(
 
     if (type !== "pre" && type !== "post") {
         return new NextResponse("Invalid type", { status: 400 });
+    }
+
+    // Prefer remote object storage if configured.
+    // Keeps local dev working even when ./output/crops is not present.
+    try {
+        const remotePath = `crops/${uid}/${type}.png`;
+        const remoteUrl = buildDataObjectUrl(remotePath);
+        const upstream = await fetch(remoteUrl, { cache: "force-cache" });
+
+        if (upstream.ok) {
+            const bytes = await upstream.arrayBuffer();
+            return new NextResponse(new Uint8Array(bytes), {
+                status: 200,
+                headers: {
+                    "Content-Type": upstream.headers.get("content-type") ?? "image/png",
+                    "Cache-Control": "public, max-age=86400",
+                },
+            });
+        }
+    } catch {
+        // Fall back to local files if remote storage is not configured.
     }
 
     const filePath = path.join(CROPS_DIR, uid, `${type}.png`);

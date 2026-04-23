@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -24,6 +25,9 @@ type FiltersPanelProps = {
   onToggle: () => void;
   selectedDamageClasses: RealBuilding["damage_class"][];
   onDamageClassesChange: (classes: RealBuilding["damage_class"][]) => void;
+  flaggedBuildings: RealBuilding[];
+  flaggedVisibleBuildings: RealBuilding[];
+  estimatedAccuracyPct: number | null;
   className?: string;
 };
 
@@ -32,6 +36,9 @@ export function FiltersPanel({
   onToggle,
   selectedDamageClasses,
   onDamageClassesChange,
+  flaggedBuildings,
+  flaggedVisibleBuildings,
+  estimatedAccuracyPct,
   className,
 }: FiltersPanelProps) {
   const damageLabel = useMemo(() => {
@@ -108,6 +115,34 @@ export function FiltersPanel({
           <Button size="sm" variant="secondary" disabled>
             Export
           </Button>
+        </div>
+
+        <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+          <div>
+            <p className="text-sm font-medium">Flag summary</p>
+            <p className="text-xs text-muted-foreground">
+              Buildings flagged from the detail view are treated as model misses or questionable labels.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div>
+              <p className="text-muted-foreground">Flagged total</p>
+              <p className="text-base font-semibold">{flaggedBuildings.length}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">In current view</p>
+              <p className="text-base font-semibold">{flaggedVisibleBuildings.length}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Accuracy est.</p>
+              <p className="text-base font-semibold">
+                {estimatedAccuracyPct === null ? "N/A" : `${estimatedAccuracyPct.toFixed(1)}%`}
+              </p>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

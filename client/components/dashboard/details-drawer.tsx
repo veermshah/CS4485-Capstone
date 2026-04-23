@@ -18,6 +18,8 @@ type DetailsDrawerProps = {
   building: RealBuilding | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  isFlagged: boolean;
+  onToggleFlag: () => void;
 };
 
 type LocationInfo = {
@@ -38,7 +40,13 @@ type LocationInfo = {
   country_code: string | null;
 };
 
-export function DetailsDrawer({ building, open, onOpenChange }: DetailsDrawerProps) {
+export function DetailsDrawer({
+  building,
+  open,
+  onOpenChange,
+  isFlagged,
+  onToggleFlag,
+}: DetailsDrawerProps) {
   const [imageryView, setImageryView] = useState<"pre" | "post">("post");
   const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -101,7 +109,9 @@ export function DetailsDrawer({ building, open, onOpenChange }: DetailsDrawerPro
                 {building ? "xBD label" : "Select a building from the list to inspect details."}
               </SheetDescription>
             </div>
-            <Button variant="outline" size="sm">Flag</Button>
+            <Button variant={isFlagged ? "default" : "outline"} size="sm" onClick={onToggleFlag}>
+              {isFlagged ? "Flagged" : "Flag"}
+            </Button>
           </div>
         </SheetHeader>
 

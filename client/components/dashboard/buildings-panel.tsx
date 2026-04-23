@@ -35,6 +35,7 @@ export function BuildingsPanel({
   className,
 }: BuildingsPanelProps) {
   const [addressByBuildingId, setAddressByBuildingId] = useState<Record<string, string>>({});
+  const [loadingAddressIds, setLoadingAddressIds] = useState<string[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -42,6 +43,7 @@ export function BuildingsPanel({
 
     if (!visibleBuildings.length) {
       setAddressByBuildingId({});
+      setLoadingAddressIds([]);
       return () => controller.abort();
     }
 
@@ -57,6 +59,21 @@ export function BuildingsPanel({
 
       return next;
     });
+
+    const idsToFetch = visibleBuildings
+      .filter(
+        (building) =>
+          !addressByBuildingId[building.building_id] &&
+          typeof building.centroid_lat === "number" &&
+          typeof building.centroid_lng === "number",
+      )
+      .map((building) => building.building_id);
+
+    setLoadingAddressIds(idsToFetch);
+
+    if (!idsToFetch.length) {
+      return () => controller.abort();
+    }
 
     void Promise.all(
       visibleBuildings.map(async (building) => {
@@ -82,6 +99,10 @@ export function BuildingsPanel({
           return;
         }
 
+        setLoadingAddressIds((current) =>
+          current.filter((id) => !idsToFetch.includes(id)),
+        );
+
         setAddressByBuildingId((current) => {
           const next = { ...current };
 
@@ -96,7 +117,12 @@ export function BuildingsPanel({
         });
       })
       .catch(() => {
-        // Keep the UID fallback if any lookup fails.
+        if (!controller.signal.aborted) {
+          setLoadingAddressIds((current) =>
+            current.filter((id) => !idsToFetch.includes(id)),
+          );
+        }
+        // Keep the unavailable label if any lookup fails.
       });
 
     return () => controller.abort();
@@ -122,6 +148,7 @@ export function BuildingsPanel({
                 const active = selectedBuildingId === building.building_id;
                 const address = addressByBuildingId[building.building_id];
                 const isFlagged = flaggedBuildingIds.includes(building.building_id);
+                const isLoadingAddress = loadingAddressIds.includes(building.building_id);
                 return (
                   <button
                     key={building.building_id}
@@ -134,7 +161,7 @@ export function BuildingsPanel({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="min-w-0 flex-1 text-sm leading-snug text-foreground">
-                        {address ?? `${building.uid.slice(0, 8)}…`}
+                        {address ?? (isLoadingAddress ? "Loading address..." : "Address unavailable")}
                       </span>
                       <div className="flex shrink-0 flex-wrap justify-end gap-1">
                         <Badge variant={DAMAGE_BADGE_VARIANT[building.damage_class]}>

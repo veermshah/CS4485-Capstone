@@ -144,8 +144,8 @@ export default function DashboardPage() {
     );
 
     const estimatedAccuracyPct =
-      allBuildings.length > 0
-        ? Math.max(0, 100 - (flaggedBuildings.length / allBuildings.length) * 100)
+      visibleBuildings.length > 0
+        ? Math.max(0, 100 - (flaggedVisibleBuildings.length / visibleBuildings.length) * 100)
         : null;
 
     const toggleFlaggedBuilding = (buildingId: string) => {

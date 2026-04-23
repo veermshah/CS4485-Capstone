@@ -17,6 +17,8 @@ type BuildingFeature = {
   };
 };
 
+const FLAG_STORAGE_KEY = "firelens-flagged-buildings";
+
 function deriveCentroidFromRing(ring: number[][] | undefined): { lng: number; lat: number } | null {
   if (!ring?.length) return null;
 
@@ -45,6 +47,29 @@ export default function DashboardPage() {
   const [selectedDamageClasses, setSelectedDamageClasses] = useState<RealBuilding["damage_class"][]>(
     [...ALL_DAMAGE_CLASSES],
   );
+  const [flaggedBuildingIds, setFlaggedBuildingIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FLAG_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+        setFlaggedBuildingIds(parsed);
+      }
+    } catch {
+      // Ignore malformed persisted state.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FLAG_STORAGE_KEY, JSON.stringify(flaggedBuildingIds));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [flaggedBuildingIds]);
 
   // Fetch all buildings once from the API
   useEffect(() => {
@@ -97,6 +122,11 @@ export default function DashboardPage() {
     [allBuildings, selectedBuildingId],
   );
 
+  const flaggedBuildings = useMemo(
+    () => allBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
+    [allBuildings, flaggedBuildingIds],
+  );
+
   // Only buildings visible on the map AND matching the active damage class filter
   const visibleBuildings = useMemo(
     () =>
@@ -107,6 +137,24 @@ export default function DashboardPage() {
       ),
     [allBuildings, visibleBuildingIds, selectedDamageClasses],
   );
+
+    const flaggedVisibleBuildings = useMemo(
+      () => visibleBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
+      [visibleBuildings, flaggedBuildingIds],
+    );
+
+    const estimatedAccuracyPct =
+      allBuildings.length > 0
+        ? Math.max(0, 100 - (flaggedBuildings.length / allBuildings.length) * 100)
+        : null;
+
+    const toggleFlaggedBuilding = (buildingId: string) => {
+      setFlaggedBuildingIds((current) =>
+        current.includes(buildingId)
+          ? current.filter((id) => id !== buildingId)
+          : [...current, buildingId],
+      );
+    };
 
   return (
     <div className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,1fr)] grid-rows-[700px_240px] gap-4">
@@ -129,6 +177,7 @@ export default function DashboardPage() {
           buildings={visibleBuildings}
           selectedBuildingId={selectedBuildingId}
           onSelectBuilding={setSelectedBuildingId}
+          flaggedBuildingIds={flaggedBuildingIds}
           className="h-full"
         />
       </div>
@@ -139,6 +188,9 @@ export default function DashboardPage() {
           onToggle={() => setFiltersCollapsed((prev) => !prev)}
           selectedDamageClasses={selectedDamageClasses}
           onDamageClassesChange={setSelectedDamageClasses}
+          flaggedBuildings={flaggedBuildings}
+          flaggedVisibleBuildings={flaggedVisibleBuildings}
+          estimatedAccuracyPct={estimatedAccuracyPct}
           className="h-full"
         />
       </div>
@@ -147,6 +199,12 @@ export default function DashboardPage() {
         building={selectedBuilding}
         open={Boolean(selectedBuilding)}
         onOpenChange={(open) => { if (!open) setSelectedBuildingId(null); }}
+        isFlagged={selectedBuilding ? flaggedBuildingIds.includes(selectedBuilding.building_id) : false}
+        onToggleFlag={() => {
+          if (selectedBuilding) {
+            toggleFlaggedBuilding(selectedBuilding.building_id);
+          }
+        }}
       />
     </div>
   );

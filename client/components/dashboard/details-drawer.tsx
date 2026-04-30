@@ -148,8 +148,12 @@ export function DetailsDrawer({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[460px] p-0 sm:w-[460px]">
+    <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
+      <SheetContent
+        side="right"
+        modal={false}
+        className="w-[460px] p-0 sm:w-[460px]"
+      >
         <SheetHeader className="border-b px-5 py-4">
           <div className="flex items-start justify-between gap-3 pr-8">
             <div className="space-y-1">

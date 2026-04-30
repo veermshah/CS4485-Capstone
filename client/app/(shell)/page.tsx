@@ -6,6 +6,11 @@ import { BuildingsPanel } from "@/components/dashboard/buildings-panel";
 import { DetailsDrawer } from "@/components/dashboard/details-drawer";
 import { FiltersPanel, ALL_DAMAGE_CLASSES } from "@/components/dashboard/filters-panel";
 import { MapPanel } from "@/components/dashboard/map-panel";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { type RealBuilding } from "@/lib/buildings";
 import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
 
@@ -40,6 +45,7 @@ function deriveCentroidFromRing(ring: number[][] | undefined): { lng: number; la
 }
 
 export default function DashboardPage() {
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [visibleBuildingIds, setVisibleBuildingIds] = useState<string[]>([]);
   const [allBuildings, setAllBuildings] = useState<RealBuilding[]>([]);
@@ -121,6 +127,11 @@ export default function DashboardPage() {
     [allBuildings, selectedBuildingId],
   );
 
+  const flaggedBuildings = useMemo(
+    () => allBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
+    [allBuildings, flaggedBuildingIds],
+  );
+
   // Only buildings visible on the map AND matching the active damage class filter
   const visibleBuildings = useMemo(
     () =>
@@ -132,6 +143,16 @@ export default function DashboardPage() {
     [allBuildings, visibleBuildingIds, selectedDamageClasses],
   );
 
+    const flaggedVisibleBuildings = useMemo(
+      () => visibleBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
+      [visibleBuildings, flaggedBuildingIds],
+    );
+
+    const estimatedAccuracyPct =
+      visibleBuildings.length > 0
+        ? Math.max(0, 100 - (flaggedVisibleBuildings.length / visibleBuildings.length) * 100)
+        : null;
+
     const toggleFlaggedBuilding = (buildingId: string) => {
       setFlaggedBuildingIds((current) =>
         current.includes(buildingId)
@@ -141,38 +162,71 @@ export default function DashboardPage() {
     };
 
   return (
-    <div className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,1fr)] grid-rows-[700px_240px] gap-4">
-      <div className="col-start-1 row-start-1 min-h-0">
-        <MapPanel
-          selectedBuildingId={selectedBuildingId}
-          onSelectBuilding={setSelectedBuildingId}
-          onVisibleBuildingsChange={setVisibleBuildingIds}
-          selectedDamageClasses={selectedDamageClasses}
-          className="h-full"
-        />
-      </div>
+    <div className="h-[calc(100vh-7rem)] min-h-[600px]">
+      <ResizablePanelGroup
+        direction="horizontal"
+        autoSaveId="firelens-dashboard-cols"
+        className="gap-1"
+      >
+        <ResizablePanel defaultSize={68} minSize={40}>
+          <ResizablePanelGroup
+            direction="vertical"
+            autoSaveId="firelens-dashboard-left"
+            className="gap-1"
+          >
+            <ResizablePanel defaultSize={65} minSize={25}>
+              <MapPanel
+                selectedBuildingId={selectedBuildingId}
+                onSelectBuilding={setSelectedBuildingId}
+                onVisibleBuildingsChange={setVisibleBuildingIds}
+                selectedDamageClasses={selectedDamageClasses}
+                className="h-full"
+              />
+            </ResizablePanel>
 
-      <div className="col-start-1 row-start-2 min-h-0">
-        <ChatPanel className="h-full" selectedBuildingId={selectedBuildingId} />
-      </div>
+            <ResizableHandle withHandle />
 
-      <div className="col-start-2 row-start-1 min-h-0">
-        <BuildingsPanel
-          buildings={visibleBuildings}
-          selectedBuildingId={selectedBuildingId}
-          onSelectBuilding={setSelectedBuildingId}
-          flaggedBuildingIds={flaggedBuildingIds}
-          className="h-full"
-        />
-      </div>
+            <ResizablePanel defaultSize={35} minSize={15}>
+              <ChatPanel className="h-full" selectedBuildingId={selectedBuildingId} />
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
 
-      <div className="col-start-2 row-start-2 min-h-0">
-        <FiltersPanel
-          selectedDamageClasses={selectedDamageClasses}
-          onDamageClassesChange={setSelectedDamageClasses}
-          className="h-full"
-        />
-      </div>
+        <ResizableHandle withHandle />
+
+        <ResizablePanel defaultSize={32} minSize={20}>
+          <ResizablePanelGroup
+            direction="vertical"
+            autoSaveId="firelens-dashboard-right"
+            className="gap-1"
+          >
+            <ResizablePanel defaultSize={70} minSize={20}>
+              <BuildingsPanel
+                buildings={visibleBuildings}
+                selectedBuildingId={selectedBuildingId}
+                onSelectBuilding={setSelectedBuildingId}
+                flaggedBuildingIds={flaggedBuildingIds}
+                className="h-full"
+              />
+            </ResizablePanel>
+
+            <ResizableHandle withHandle />
+
+            <ResizablePanel defaultSize={30} minSize={15}>
+              <FiltersPanel
+                collapsed={filtersCollapsed}
+                onToggle={() => setFiltersCollapsed((prev) => !prev)}
+                selectedDamageClasses={selectedDamageClasses}
+                onDamageClassesChange={setSelectedDamageClasses}
+                flaggedBuildings={flaggedBuildings}
+                flaggedVisibleBuildings={flaggedVisibleBuildings}
+                estimatedAccuracyPct={estimatedAccuracyPct}
+                className="h-full"
+              />
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <DetailsDrawer
         building={selectedBuilding}

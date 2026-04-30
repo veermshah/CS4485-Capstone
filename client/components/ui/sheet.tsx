@@ -49,15 +49,24 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  modal = true,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** When false, no overlay is rendered and the rest of the page stays interactive. */
+  modal?: boolean
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {modal && <SheetOverlay />}
       <SheetPrimitive.Content
+        onPointerDownOutside={(event) => {
+          if (!modal) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (!modal) event.preventDefault();
+        }}
         data-slot="sheet-content"
         className={cn(
           "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import csv
 import html
 import json
@@ -13,9 +14,22 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi import File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - dependency guard
+    Image = None
+
+try:
+    from google import genai
+    from google.genai import types
+except Exception:  # pragma: no cover - dependency guard
+    genai = None
+    types = None
 
 
 class Settings(BaseSettings):
@@ -45,6 +59,14 @@ class BuildingContext(BaseModel):
 
 class PredictResponse(BaseModel):
     building_id: str
+    model: str
+    damage_class: str
+    confidence: float
+    rationale: str
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvaluateResponse(BaseModel):
     model: str
     damage_class: str
     confidence: float
@@ -116,6 +138,34 @@ app.add_middleware(
 # In-memory stores for prototype phase.
 prediction_cache: dict[str, PredictResponse] = {}
 conversation_store: dict[str, list[ChatMessage]] = {}
+
+
+EVALUATION_SYSTEM_PROMPT = """You are a specialized Disaster Assessment AI. Your objective is to perform automated, building-level structural damage analysis by comparing pre-disaster and post-disaster aerial imagery.
+
+Task Guidelines:
+1. Visual Comparison: Analyze the provided pair of image crops (Pre-disaster vs. Post-disaster) for a specific building footprint.
+2. Damage Classification: You must classify the damage into exactly one of these four categories:
+* Undamaged: No visible structural changes or impact.
+* Damaged: Minor visible impact or surface damage.
+* Severely Damaged: Significant structural compromise, partially collapsed, or major exterior loss.
+* Destroyed: Complete structural loss or total collapse.
+3. Environmental Context: Account for potential interference like smoke, shadows, or varying image quality.
+4. Output Format: You must respond exclusively in valid JSON format. Do not include conversational text.
+
+JSON Schema:
+{
+"building_id": "string",
+"damage_level": "Undamaged" | "Damaged" | "Severely Damaged" | "Destroyed",
+"confidence_score": float (0.0 to 1.0),
+"reasoning": "A brief explanation (max 20 words) citing specific visual changes observed."
+}"""
+
+VLM_TO_API_DAMAGE_CLASS = {
+    "undamaged": "no-damage",
+    "damaged": "minor-damage",
+    "severely damaged": "major-damage",
+    "destroyed": "destroyed",
+}
 
 
 DISASTER_QUERY_PATTERN = re.compile(
@@ -358,6 +408,72 @@ def _map_focus_from_building(context: BuildingContext | None) -> SpatialContext 
     )
 
 
+def _parse_vlm_response(raw_text: str) -> dict[str, Any]:
+    text = raw_text.strip()
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fenced:
+        text = fenced.group(1).strip()
+    return json.loads(text)
+
+
+def _normalize_damage_label(raw_label: str) -> str:
+    return VLM_TO_API_DAMAGE_CLASS.get(raw_label.strip().lower(), "un-classified")
+
+
+def _require_vlm_dependencies() -> None:
+    if Image is None or genai is None or types is None:
+        raise HTTPException(status_code=503, detail="VLM evaluation dependencies are not installed")
+
+
+async def _evaluate_damage_pair(pre_image: UploadFile, post_image: UploadFile) -> EvaluateResponse:
+    _require_vlm_dependencies()
+
+    api_key = settings.gemini_api_key or settings.model_api_key
+    if not api_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured")
+
+    try:
+        pre_bytes = await pre_image.read()
+        post_bytes = await post_image.read()
+        pre = Image.open(io.BytesIO(pre_bytes))
+        post = Image.open(io.BytesIO(post_bytes))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid image upload: {exc}") from exc
+
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(
+        temperature=0.3,
+        system_instruction=[types.Part.from_text(text=EVALUATION_SYSTEM_PROMPT)],
+    )
+
+    chunks: list[str] = []
+    try:
+        for chunk in client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents=[pre, post],
+            config=config,
+        ):
+            if chunk.text:
+                chunks.append(chunk.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini evaluation failed: {exc}") from exc
+
+    full_text = "".join(chunks)
+    try:
+        parsed = _parse_vlm_response(full_text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not parse VLM response: {exc}") from exc
+
+    damage_level = str(parsed.get("damage_level", "")).strip()
+    return EvaluateResponse(
+        model="gemini-2.5-flash",
+        damage_class=_normalize_damage_label(damage_level),
+        confidence=float(parsed.get("confidence_score", 0.0)),
+        rationale=str(parsed.get("reasoning", "No rationale provided.")),
+        raw=parsed,
+    )
+
+
 async def predict_for_building(building_id: str) -> PredictResponse:
     cached = prediction_cache.get(building_id)
     if cached:
@@ -414,6 +530,14 @@ async def building_context(building_id: str) -> BuildingContext:
 @app.post("/v1/buildings/{building_id}/predict", response_model=PredictResponse)
 async def building_predict(building_id: str) -> PredictResponse:
     return await predict_for_building(building_id)
+
+
+@app.post("/v1/evaluate", response_model=EvaluateResponse)
+async def evaluate(
+    pre_image: UploadFile = File(...),
+    post_image: UploadFile = File(...),
+) -> EvaluateResponse:
+    return await _evaluate_damage_pair(pre_image, post_image)
 
 
 def _try_get_context(building_id: str | None) -> BuildingContext | None:

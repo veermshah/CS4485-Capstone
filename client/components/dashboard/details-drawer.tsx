@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,7 +11,8 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type RealBuilding, DAMAGE_LABEL } from "@/lib/buildings";
+import { type RealBuilding } from "@/lib/buildings";
+import { getEvaluationResults, type EvaluationResult } from "@/lib/evaluation-results-client-cache";
 
 type DetailsDrawerProps = {
   building: RealBuilding | null;
@@ -50,14 +50,14 @@ export function DetailsDrawer({
   const [imageryView, setImageryView] = useState<"pre" | "post">("post");
   const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
+  const [evaluationLoading, setEvaluationLoading] = useState(false);
 
   const shortId = building?.uid.slice(0, 8) ?? "";
   const centroidLng =
     typeof building?.centroid_lng === "number" ? building.centroid_lng.toFixed(6) : "N/A";
   const centroidLat =
     typeof building?.centroid_lat === "number" ? building.centroid_lat.toFixed(6) : "N/A";
-  const relevancePct =
-    typeof locationInfo?.relevance === "number" ? `${(locationInfo.relevance * 100).toFixed(0)}%` : "N/A";
   const openMapsHref =
     typeof building?.centroid_lat === "number" && typeof building?.centroid_lng === "number"
       ? `https://www.google.com/maps/search/?api=1&query=${building.centroid_lat},${building.centroid_lng}`
@@ -68,13 +68,17 @@ export function DetailsDrawer({
       typeof building?.centroid_lat === "number" && typeof building?.centroid_lng === "number";
 
     if (!building || !hasCoords) {
-      setLocationInfo(null);
-      setLocationLoading(false);
+      queueMicrotask(() => {
+        setLocationInfo(null);
+        setLocationLoading(false);
+      });
       return;
     }
 
     const controller = new AbortController();
-    setLocationLoading(true);
+    queueMicrotask(() => {
+      setLocationLoading(true);
+    });
 
     fetch(
       `/api/location-info?lat=${building.centroid_lat}&lng=${building.centroid_lng}`,
@@ -95,6 +99,53 @@ export function DetailsDrawer({
 
     return () => controller.abort();
   }, [building?.uid, building?.centroid_lat, building?.centroid_lng]);
+
+  useEffect(() => {
+    if (!building?.uid) {
+      queueMicrotask(() => {
+        setEvaluationResult(null);
+        setEvaluationLoading(false);
+      });
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      setEvaluationLoading(true);
+    });
+
+    getEvaluationResults()
+      .then((payload) => {
+        if (cancelled) return;
+        setEvaluationResult(payload?.by_uid?.[building.uid] ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEvaluationResult(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setEvaluationLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [building?.uid]);
+
+  const formatLabel = (value: string | undefined): string => {
+    if (!value) return "N/A";
+    const formatted = value
+      .replaceAll("-", " ")
+      .replaceAll("_", " ")
+      .split(" ")
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+    return formatted.toLowerCase() === "un classified" ? "Unclassified" : formatted;
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -126,9 +177,35 @@ export function DetailsDrawer({
               {/* Overview — complete building record */}
               <TabsContent value="overview" className="mt-4 rounded-md border bg-card p-4 text-sm">
                 <div className="space-y-3">
+                  <div className="rounded-md border bg-muted/30 p-4">
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold tracking-wide text-muted-foreground">
+                        DAMAGE COMPARISON
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-md border bg-background p-3">
+                          <div className="text-xs text-muted-foreground">Gemini VLM Predictions</div>
+                          <div className="mt-1 text-lg font-semibold">
+                            {evaluationLoading
+                              ? "Loading..."
+                              : formatLabel(evaluationResult?.gemini_label)}
+                          </div>
+                        </div>
+                        <div className="rounded-md border bg-background p-3">
+                          <div className="text-xs text-muted-foreground">FEMA Ground Truth</div>
+                          <div className="mt-1 text-lg font-semibold">
+                            {evaluationLoading
+                              ? "Loading..."
+                              : formatLabel(evaluationResult?.true_label)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <Separator />
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Building ID</span>
-                    <span className="font-mono text-xs">{building.building_id}</span>
+                    <span className="max-w-[250px] text-right font-mono text-xs">{building.building_id}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
@@ -197,11 +274,6 @@ export function DetailsDrawer({
                         Open in Maps
                       </Button>
                     )}
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Subtype</span>
-                    <span>{building.subtype}</span>
                   </div>
                 </div>
               </TabsContent>

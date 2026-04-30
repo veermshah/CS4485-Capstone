@@ -22,7 +22,7 @@ from typing import Optional
 
 # Load variables from .env file into the environment.
 # Has no effect if the variables are already set (e.g. in production via CI/CD secrets).
-load_dotenv("api.env")
+load_dotenv()
 
 
 # Exact CSV columns from the VLM output pipeline
@@ -64,6 +64,16 @@ Guidelines:
 - If no uid lookup is provided and the user asks about a specific uid, say the uid was not found.
 - Do not guess or hallucinate uids or labels not present in the data.
 - You may provide data from internet (Santa Rosa is the disaster we are talking about), but must provide sources.
+
+Spatial / address-aware questions:
+- When the user asks about a specific address, street, neighborhood, radius, "clusters",
+  "hotspots", "areas to prioritize", or "unsafe buildings", a spatial context block may
+  be appended to the user message. It contains pre-computed building counts by damage
+  class, hotspot grid-cell centroids, address geocoding results, and sample uids.
+- Trust those numbers and coordinates when present — they are computed from the same
+  building footprints rendered on the map, not guessed.
+- If a spatial block is NOT present and the user asks a geographic question, say you
+  don't have geographic context for that query rather than inventing coordinates.
 Current dataset summary:
 {data_summary}
 
@@ -216,20 +226,84 @@ class DamageChatbot:
                 f"  - {label}: {class_acc:.1f}% ({int(subset['correct'].sum())}/{len(subset)})"
             )
 
+        # Confusion matrix: rows = true_label, cols = gemini_label.
+        # Lets the model answer "where did the model disagree" questions concretely.
+        lines.append("")
+        lines.append("Confusion matrix (rows = FEMA true_label, columns = gemini_label, classified only):")
+        labels_order = ["no-damage", "minor-damage", "major-damage", "destroyed"]
+        present_true = [l for l in labels_order if l in classified["true_label"].unique()]
+        present_pred = [l for l in labels_order if l in classified["gemini_label"].unique()]
+        if present_true and present_pred:
+            header = "  true \\ pred | " + " | ".join(f"{l:>13}" for l in present_pred)
+            lines.append(header)
+            for tl in present_true:
+                row_counts = []
+                for pl in present_pred:
+                    n = int(((classified["true_label"] == tl) & (classified["gemini_label"] == pl)).sum())
+                    row_counts.append(f"{n:>13}")
+                lines.append(f"  {tl:>11} | " + " | ".join(row_counts))
+
+        # "Severe" = major-damage or destroyed in true_label.
+        severe_mask_total = df["true_label"].isin(["major-damage", "destroyed"])
+        severe_total = int(severe_mask_total.sum())
+        if total > 0:
+            lines.append("")
+            lines.append(
+                f"Severe damage (true_label in major-damage/destroyed): "
+                f"{severe_total} of {total} buildings ({severe_total / total * 100:.1f}%)."
+            )
+
+        # Sample of false-positive and false-negative uids for severe damage —
+        # cap at a handful so we don't blow up the prompt.
+        false_negatives = classified[
+            classified["true_label"].isin(["major-damage", "destroyed"])
+            & ~classified["gemini_label"].isin(["major-damage", "destroyed"])
+        ]
+        false_positives = classified[
+            ~classified["true_label"].isin(["major-damage", "destroyed"])
+            & classified["gemini_label"].isin(["major-damage", "destroyed"])
+        ]
+        lines.append("")
+        lines.append(
+            f"Severe-damage false negatives (FEMA severe, model said not severe): "
+            f"{len(false_negatives)} buildings."
+        )
+        lines.append(
+            f"Severe-damage false positives (model said severe, FEMA said not severe): "
+            f"{len(false_positives)} buildings."
+        )
+        if len(false_negatives) > 0:
+            sample = false_negatives.head(5)
+            lines.append("  Example false-negative uids (true → predicted):")
+            for _, row in sample.iterrows():
+                lines.append(f"    - {row['uid']} ({row['true_label']} → {row['gemini_label']})")
+        if len(false_positives) > 0:
+            sample = false_positives.head(5)
+            lines.append("  Example false-positive uids (true → predicted):")
+            for _, row in sample.iterrows():
+                lines.append(f"    - {row['uid']} ({row['true_label']} → {row['gemini_label']})")
+
         return "\n".join(lines)
 
     # ─────────────────────────────────────────────
     # Chat
     # ─────────────────────────────────────────────
 
-    def chat(self, message: str, session_id: str = "default") -> str:
+    def chat(
+        self,
+        message: str,
+        session_id: str = "default",
+        extra_context: str | None = None,
+    ) -> str:
         """
         Send a message and get a response. Maintains history per session.
 
         Args:
-            message:    The user's message.
-            session_id: Unique identifier for this conversation session.
-                        Use separate IDs per user/thread to keep histories isolated.
+            message:       The user's message.
+            session_id:    Unique identifier for this conversation session.
+                           Use separate IDs per user/thread to keep histories isolated.
+            extra_context: Optional pre-computed context appended to the user
+                           message (e.g. spatial summary from the Next.js layer).
 
         Returns:
             The assistant's response as a plain string.
@@ -269,8 +343,10 @@ class DamageChatbot:
         # Build the messages list.
         # The system prompt (dataset summary) is only included on the first message.
         # After that, Gemini already knows the context via conversation history.
-        # uid lookup results are appended to the user message when relevant.
-        user_message = message if not uid_context else f"{message}\n\n{uid_context}"
+        # uid lookup results and any caller-supplied extra_context are appended
+        # to the user message when relevant.
+        context_blocks = [b for b in (uid_context, extra_context) if b]
+        user_message = message if not context_blocks else message + "\n\n" + "\n\n".join(context_blocks)
 
         if is_first_message:
             system = SYSTEM_PROMPT.format(

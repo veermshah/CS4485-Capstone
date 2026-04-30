@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     vlm_endpoint_url: str | None = None
     chat_endpoint_url: str | None = None
     model_api_key: str | None = None
+    gemini_api_key: str | None = None
     public_base_url: str = "http://localhost:3000"
 
 
@@ -55,13 +57,16 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
-    building_id: str = Field(min_length=1)
+    building_id: str | None = None
     conversation_id: str | None = None
+    # Caller-supplied spatial / dataset context (e.g. nearby buildings, hotspots)
+    # built by the Next.js layer from the GeoJSON it already serves.
+    extra_context: str | None = None
 
 
 class ChatResponse(BaseModel):
     conversation_id: str
-    building_id: str
+    building_id: str | None = None
     response: str
     prediction: PredictResponse | None = None
 
@@ -87,6 +92,34 @@ app.add_middleware(
 # In-memory stores for prototype phase.
 prediction_cache: dict[str, PredictResponse] = {}
 conversation_store: dict[str, list[ChatMessage]] = {}
+
+
+@lru_cache(maxsize=1)
+def get_damage_chatbot() -> Any:
+    """Lazily import and instantiate the Gemini-backed DamageChatbot.
+
+    Returns None if the SDK, the API key, or the evaluation CSV is unavailable —
+    the /v1/chat endpoint then falls through to the deterministic stub.
+    """
+    if not settings.gemini_api_key:
+        return None
+
+    if str(ROOT_DIR) not in sys.path:
+        sys.path.insert(0, str(ROOT_DIR))
+
+    try:
+        from damage_chatbot import DamageChatbot  # type: ignore[import-not-found]
+    except Exception:
+        return None
+
+    import os
+
+    os.environ.setdefault("GEMINI_API_KEY", settings.gemini_api_key)
+
+    try:
+        return DamageChatbot()
+    except Exception:
+        return None
 
 
 @lru_cache(maxsize=1)
@@ -249,14 +282,39 @@ async def building_predict(building_id: str) -> PredictResponse:
     return await predict_for_building(building_id)
 
 
+def _try_get_context(building_id: str | None) -> BuildingContext | None:
+    """Best-effort building context lookup.
+
+    Returns None if building_id is unset or the local dataset isn't available
+    — the chatbot doesn't need this context to answer dataset-level questions.
+    """
+    if not building_id:
+        return None
+    try:
+        return get_building_context_or_404(building_id)
+    except HTTPException:
+        return None
+
+
+async def _try_get_prediction(building_id: str | None) -> PredictResponse | None:
+    if not building_id:
+        return None
+    try:
+        return await predict_for_building(building_id)
+    except HTTPException:
+        return None
+
+
 @app.post("/v1/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
-    context = get_building_context_or_404(req.building_id)
-    prediction = await predict_for_building(req.building_id)
+    context = _try_get_context(req.building_id)
+    prediction = await _try_get_prediction(req.building_id)
 
     conversation_id = req.conversation_id or str(uuid.uuid4())
     history = _history(conversation_id)
     history.append(ChatMessage(role="user", content=req.message))
+
+    bot = get_damage_chatbot()
 
     if settings.chat_endpoint_url:
         external = await request_external_json(
@@ -264,24 +322,46 @@ async def chat(req: ChatRequest) -> ChatResponse:
             payload={
                 "message": req.message,
                 "conversation": [m.model_dump() for m in history],
-                "building_context": context.model_dump(),
-                "prediction": prediction.model_dump(),
+                "building_context": context.model_dump() if context else None,
+                "prediction": prediction.model_dump() if prediction else None,
             },
         )
         assistant_text = str(external.get("response", "No response from chat model."))
+    elif bot is not None:
+        # Inject the selected building's UID so the chatbot's per-uid lookup
+        # picks it up even when the user's message doesn't include it explicitly.
+        if req.building_id:
+            message_with_context = f"[Selected building uid: {req.building_id}]\n{req.message}"
+        else:
+            message_with_context = req.message
+        try:
+            assistant_text = bot.chat(
+                message=message_with_context,
+                session_id=conversation_id,
+                extra_context=req.extra_context,
+            )
+        except Exception as exc:
+            assistant_text = f"Chatbot error: {exc}"
     else:
-        centroid = context.centroid
-        loc = (
-            f" at ({centroid['lat']:.5f}, {centroid['lon']:.5f})"
-            if centroid is not None
-            else ""
-        )
-        assistant_text = (
-            f"Building {req.building_id}{loc} is predicted as {prediction.damage_class} "
-            f"with confidence {prediction.confidence:.2f}. "
-            f"Evidence summary: {prediction.rationale}. "
-            f"Question received: {req.message}"
-        )
+        # Final fallback when neither external chat nor the Gemini chatbot is configured.
+        if prediction is not None:
+            centroid = context.centroid if context else None
+            loc = (
+                f" at ({centroid['lat']:.5f}, {centroid['lon']:.5f})"
+                if centroid is not None
+                else ""
+            )
+            assistant_text = (
+                f"Building {req.building_id}{loc} is predicted as {prediction.damage_class} "
+                f"with confidence {prediction.confidence:.2f}. "
+                f"Evidence summary: {prediction.rationale}. "
+                f"Question received: {req.message}"
+            )
+        else:
+            assistant_text = (
+                "Chat backend is not configured. Set GEMINI_API_KEY in backend/.env "
+                "to enable the damage-assessment chatbot."
+            )
 
     history.append(ChatMessage(role="assistant", content=assistant_text))
 

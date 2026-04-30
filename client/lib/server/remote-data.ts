@@ -122,6 +122,27 @@ export function getDatasetRows(): Promise<Array<Record<string, string>>> {
   return datasetRowsPromise;
 }
 
+let evaluationRowsPromise: Promise<Array<Record<string, string>>> | null = null;
+
+export function getEvaluationRows(): Promise<Array<Record<string, string>>> {
+  if (!evaluationRowsPromise) {
+    evaluationRowsPromise = (async () => {
+      const url = buildDataObjectUrl("evaluation_results.csv");
+      const response = await fetch(url, { cache: "force-cache" });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch evaluation_results.csv: HTTP ${response.status}`);
+      }
+      const csvText = await response.text();
+      return parseCsv(csvText);
+    })().catch((err) => {
+      evaluationRowsPromise = null;
+      throw err;
+    });
+  }
+
+  return evaluationRowsPromise;
+}
+
 let tileIdsPromise: Promise<string[]> | null = null;
 
 export function getTileIdsFromDataset(): Promise<string[]> {

@@ -47,6 +47,13 @@ function deriveCentroidFromRing(ring: number[][] | undefined): { lng: number; la
 export default function DashboardPage() {
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
+  const [chatMapFocus, setChatMapFocus] = useState<{
+    kind: string;
+    center: { lng: number; lat: number } | null;
+    zoom?: number | null;
+    building_ids?: string[];
+    label?: string | null;
+  } | null>(null);
   const [visibleBuildingIds, setVisibleBuildingIds] = useState<string[]>([]);
   const [allBuildings, setAllBuildings] = useState<RealBuilding[]>([]);
   const [selectedDamageClasses, setSelectedDamageClasses] = useState<RealBuilding["damage_class"][]>(
@@ -55,17 +62,25 @@ export default function DashboardPage() {
   const [flaggedBuildingIds, setFlaggedBuildingIds] = useState<string[]>([]);
 
   useEffect(() => {
+    let timeoutId: number | null = null;
+
     try {
       const raw = window.localStorage.getItem(FLAG_STORAGE_KEY);
       if (!raw) return;
 
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-        setFlaggedBuildingIds(parsed);
+        timeoutId = window.setTimeout(() => setFlaggedBuildingIds(parsed), 0);
       }
     } catch {
       // Ignore malformed persisted state.
     }
+
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -180,6 +195,7 @@ export default function DashboardPage() {
                 onSelectBuilding={setSelectedBuildingId}
                 onVisibleBuildingsChange={setVisibleBuildingIds}
                 selectedDamageClasses={selectedDamageClasses}
+                focusTarget={chatMapFocus}
                 className="h-full"
               />
             </ResizablePanel>
@@ -187,7 +203,11 @@ export default function DashboardPage() {
             <ResizableHandle withHandle />
 
             <ResizablePanel defaultSize={35} minSize={15}>
-              <ChatPanel className="h-full" selectedBuildingId={selectedBuildingId} />
+              <ChatPanel
+                className="h-full"
+                selectedBuildingId={selectedBuildingId}
+                onMapFocus={setChatMapFocus}
+              />
             </ResizablePanel>
           </ResizablePanelGroup>
         </ResizablePanel>

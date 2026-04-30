@@ -22,6 +22,14 @@ type ChatRequestBody = {
   conversation_id?: string | null;
 };
 
+type SpatialFocus = {
+  kind: string;
+  center: { lng: number; lat: number } | null;
+  zoom?: number | null;
+  building_ids?: string[];
+  label?: string | null;
+};
+
 export async function POST(request: Request) {
   let body: ChatRequestBody;
   try {
@@ -40,12 +48,12 @@ export async function POST(request: Request) {
   // Pre-compute geographic context (hotspots, address proximity, etc.) from
   // the buildings GeoJSON the map already serves. Best-effort — if it fails,
   // we just send the message through without spatial context.
-  let extraContext: string | null = null;
+  let spatialContext: Awaited<ReturnType<typeof buildSpatialContext>> = null;
   try {
     const baseUrl = new URL(request.url).origin;
-    extraContext = await buildSpatialContext(message, baseUrl);
+    spatialContext = await buildSpatialContext(message, baseUrl);
   } catch {
-    extraContext = null;
+    spatialContext = null;
   }
 
   let response: Response;
@@ -57,7 +65,8 @@ export async function POST(request: Request) {
         message,
         building_id: body.building_id ?? null,
         conversation_id: body.conversation_id ?? null,
-        extra_context: extraContext,
+        extra_context: spatialContext?.prompt ?? null,
+        spatial_context: spatialContext?.focus ?? null,
       }),
     });
   } catch (err) {
@@ -92,10 +101,14 @@ export async function POST(request: Request) {
   const payload = parsed as {
     conversation_id?: string;
     response?: string;
+    map_focus?: SpatialFocus | null;
+    sources?: Array<{ title?: string; url?: string; summary?: string | null }>;
   };
 
   return NextResponse.json({
     conversation_id: payload.conversation_id ?? "",
     response: payload.response ?? "",
+    map_focus: payload.map_focus ?? spatialContext?.focus ?? null,
+    sources: payload.sources ?? [],
   });
 }

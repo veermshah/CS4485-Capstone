@@ -11,6 +11,24 @@
  */
 import type { RealBuilding } from "@/lib/buildings";
 
+type SpatialCenter = {
+  lng: number;
+  lat: number;
+};
+
+type SpatialFocus = {
+  kind: "address" | "cluster" | "unsafe";
+  center: SpatialCenter;
+  zoom: number;
+  building_ids: string[];
+  label: string;
+};
+
+export type SpatialContextResult = {
+  prompt: string;
+  focus: SpatialFocus | null;
+};
+
 type Feature = {
   type: "Feature";
   geometry: { type: "Polygon"; coordinates: number[][][] };
@@ -29,7 +47,7 @@ const UNSAFE_INTENT = /\b(unsafe|destroyed|condemn|collapse|list.*destroyed|list
 export async function buildSpatialContext(
   message: string,
   baseUrl: string,
-): Promise<string | null> {
+): Promise<SpatialContextResult | null> {
   const fc = await getBuildingsCached(baseUrl);
   if (!fc || !fc.features.length) return null;
 
@@ -38,25 +56,33 @@ export async function buildSpatialContext(
     .filter((b): b is BuildingLite => b !== null);
 
   const blocks: string[] = [];
+  let focus: SpatialFocus | null = null;
 
   // Always-on global digest so the model has accurate counts even on questions
   // that don't trigger a more specific lookup.
   blocks.push(globalDigest(buildings));
 
   if (CLUSTER_INTENT.test(message)) {
-    blocks.push(severeHotspotDigest(buildings));
+    const hotspot = severeHotspotDigest(buildings);
+    blocks.push(hotspot.prompt);
+    focus ??= hotspot.focus;
   }
 
   if (UNSAFE_INTENT.test(message)) {
-    blocks.push(destroyedSampleDigest(buildings));
+    const unsafe = destroyedSampleDigest(buildings);
+    blocks.push(unsafe.prompt);
+    focus ??= unsafe.focus;
   }
 
   if (ADDRESS_INTENT.test(message)) {
     const nearby = await nearbyDigestForAddress(message, buildings);
-    if (nearby) blocks.push(nearby);
+    if (nearby) {
+      blocks.push(nearby.prompt);
+      focus ??= nearby.focus;
+    }
   }
 
-  return blocks.join("\n\n");
+  return { prompt: blocks.join("\n\n"), focus };
 }
 
 // ─── Building lite type + GeoJSON loading ─────────────────────────────────
@@ -113,11 +139,11 @@ function globalDigest(buildings: BuildingLite[]): string {
   ].join("\n");
 }
 
-function severeHotspotDigest(buildings: BuildingLite[]): string {
+function severeHotspotDigest(buildings: BuildingLite[]): { prompt: string; focus: SpatialFocus | null } {
   const severe = buildings.filter(
     (b) => b.damage_class === "major" || b.damage_class === "destroyed",
   );
-  if (!severe.length) return "Severe-damage hotspots: none.";
+  if (!severe.length) return { prompt: "Severe-damage hotspots: none.", focus: null };
 
   // Bin by ~500 m grid cells (roughly 0.005 deg lat, 0.006 deg lng at 38°N).
   const LAT_BIN = 0.005;
@@ -140,31 +166,55 @@ function severeHotspotDigest(buildings: BuildingLite[]): string {
       return `  - (${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}): ${cell.length} severe (${destroyed} destroyed, ${major} major)`;
     });
 
-  return [
-    "Top severe-damage hotspots (~500 m grid cells, ranked by severe count):",
-    ...ranked,
-    "These are the highest-priority areas for emergency response and inspection.",
-  ].join("\n");
+  const topCell = Array.from(bins.values()).sort((a, b) => b.length - a.length)[0];
+  const topCentroid = centroid(topCell);
+
+  return {
+    prompt: [
+      "Top severe-damage hotspots (~500 m grid cells, ranked by severe count):",
+      ...ranked,
+      "These are the highest-priority areas for emergency response and inspection.",
+    ].join("\n"),
+    focus: topCentroid
+      ? {
+          kind: "cluster",
+          center: { lng: topCentroid.lng, lat: topCentroid.lat },
+          zoom: 16,
+          building_ids: topCell.slice(0, 10).map((b) => b.uid),
+          label: "Severe-damage hotspot",
+        }
+      : null,
+  };
 }
 
-function destroyedSampleDigest(buildings: BuildingLite[]): string {
+function destroyedSampleDigest(buildings: BuildingLite[]): { prompt: string; focus: SpatialFocus | null } {
   const destroyed = buildings.filter((b) => b.damage_class === "destroyed");
-  if (!destroyed.length) return "No destroyed buildings in the dataset.";
+  if (!destroyed.length) return { prompt: "No destroyed buildings in the dataset.", focus: null };
 
   const sample = destroyed.slice(0, 10);
   const lines = sample.map(
     (b) => `  - uid ${b.uid} at (${b.lat.toFixed(5)}, ${b.lng.toFixed(5)})`,
   );
-  return [
-    `Potentially unsafe buildings (sample of ${sample.length} of ${destroyed.length} destroyed):`,
-    ...lines,
-  ].join("\n");
+  const c = centroid(sample);
+  return {
+    prompt: [
+      `Potentially unsafe buildings (sample of ${sample.length} of ${destroyed.length} destroyed):`,
+      ...lines,
+    ].join("\n"),
+    focus: {
+      kind: "unsafe",
+      center: { lng: c.lng, lat: c.lat },
+      zoom: 17,
+      building_ids: sample.map((b) => b.uid),
+      label: "Destroyed buildings sample",
+    },
+  };
 }
 
 async function nearbyDigestForAddress(
   message: string,
   buildings: BuildingLite[],
-): Promise<string | null> {
+): Promise<{ prompt: string; focus: SpatialFocus | null } | null> {
   const token = process.env.MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   if (!token) return null;
 
@@ -202,10 +252,19 @@ async function nearbyDigestForAddress(
     .sort((a, b) => a.d - b.d);
 
   if (!within.length) {
-    return [
-      `Address lookup: "${query}" → ${feature.place_name ?? "geocoded"} at (${lat.toFixed(5)}, ${lng.toFixed(5)}).`,
-      `No buildings in the dataset within ${RADIUS_M} m of this address.`,
-    ].join("\n");
+    return {
+      prompt: [
+        `Address lookup: "${query}" → ${feature.place_name ?? "geocoded"} at (${lat.toFixed(5)}, ${lng.toFixed(5)}).`,
+        `No buildings in the dataset within ${RADIUS_M} m of this address.`,
+      ].join("\n"),
+      focus: {
+        kind: "address",
+        center: { lng, lat },
+        zoom: 18,
+        building_ids: [],
+        label: feature.place_name ?? query,
+      },
+    };
   }
 
   const counts = countByClass(within.map(({ b }) => b));
@@ -214,13 +273,22 @@ async function nearbyDigestForAddress(
     `    - uid ${b.uid}: ${b.damage_class} (${Math.round(d)} m away)`,
   );
 
-  return [
-    `Address lookup: "${query}" → ${feature.place_name ?? "geocoded"} at (${lat.toFixed(5)}, ${lng.toFixed(5)}).`,
-    `Buildings within ${RADIUS_M} m: ${total}`,
-    `  no_damage: ${counts.no_damage} | minor: ${counts.minor} | major: ${counts.major} | destroyed: ${counts.destroyed}`,
-    `  Closest buildings:`,
-    ...closest,
-  ].join("\n");
+  return {
+    prompt: [
+      `Address lookup: "${query}" → ${feature.place_name ?? "geocoded"} at (${lat.toFixed(5)}, ${lng.toFixed(5)}).`,
+      `Buildings within ${RADIUS_M} m: ${total}`,
+      `  no_damage: ${counts.no_damage} | minor: ${counts.minor} | major: ${counts.major} | destroyed: ${counts.destroyed}`,
+      `  Closest buildings:`,
+      ...closest,
+    ].join("\n"),
+    focus: {
+      kind: "address",
+      center: { lng, lat },
+      zoom: 18,
+      building_ids: within.slice(0, 10).map(({ b }) => b.uid),
+      label: feature.place_name ?? query,
+    },
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

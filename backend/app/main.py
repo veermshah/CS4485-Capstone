@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import html
 import json
+import re
 import sys
 import uuid
 from functools import lru_cache
@@ -50,6 +52,25 @@ class PredictResponse(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class SpatialCenter(BaseModel):
+    lng: float
+    lat: float
+
+
+class SpatialContext(BaseModel):
+    kind: str
+    center: SpatialCenter | None = None
+    zoom: int | None = None
+    building_ids: list[str] = Field(default_factory=list)
+    label: str | None = None
+
+
+class ReferenceSource(BaseModel):
+    title: str
+    url: str
+    summary: str | None = None
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -62,6 +83,7 @@ class ChatRequest(BaseModel):
     # Caller-supplied spatial / dataset context (e.g. nearby buildings, hotspots)
     # built by the Next.js layer from the GeoJSON it already serves.
     extra_context: str | None = None
+    spatial_context: SpatialContext | None = None
 
 
 class ChatResponse(BaseModel):
@@ -69,6 +91,8 @@ class ChatResponse(BaseModel):
     building_id: str | None = None
     response: str
     prediction: PredictResponse | None = None
+    map_focus: SpatialContext | None = None
+    sources: list[ReferenceSource] = Field(default_factory=list)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -92,6 +116,33 @@ app.add_middleware(
 # In-memory stores for prototype phase.
 prediction_cache: dict[str, PredictResponse] = {}
 conversation_store: dict[str, list[ChatMessage]] = {}
+
+
+DISASTER_QUERY_PATTERN = re.compile(
+    r"\b(disaster|wildfire|fire|smoke|ash|evacuat|emergency|response|recovery|damage|damaged|destroyed|building|buildings|fema|vlm|prediction|assessment|hotspot|unsafe|shelter|rescue|storm|flood|hurricane|tornado|earthquake|aftershock|outage|inspection)\b",
+    re.IGNORECASE,
+)
+
+REFERENCE_LIBRARY: list[dict[str, Any]] = [
+    {
+        "title": "FEMA disaster assistance",
+        "url": "https://www.fema.gov/assistance",
+        "keywords": {"fema", "help", "assistance", "recovery", "aid", "relief"},
+        "fallback": "Overview of FEMA assistance, recovery steps, and survivor support after a disaster.",
+    },
+    {
+        "title": "Ready.gov wildfires",
+        "url": "https://www.ready.gov/wildfires",
+        "keywords": {"wildfire", "fire", "smoke", "burn", "ash"},
+        "fallback": "Wildfire preparation guidance covering evacuation, smoke safety, and post-fire cleanup.",
+    },
+    {
+        "title": "Ready.gov evacuation",
+        "url": "https://www.ready.gov/evacuation",
+        "keywords": {"evacuat", "shelter", "route", "response", "exit", "unsafe"},
+        "fallback": "Evacuation guidance for leaving quickly, planning routes, and staying informed.",
+    },
+]
 
 
 @lru_cache(maxsize=1)
@@ -224,6 +275,89 @@ async def request_external_json(url: str, payload: dict[str, Any]) -> dict[str, 
         return response.json()
 
 
+def is_disaster_related(message: str, building_id: str | None = None, spatial_context: SpatialContext | None = None) -> bool:
+    if building_id or spatial_context is not None:
+        return True
+    return bool(DISASTER_QUERY_PATTERN.search(message))
+
+
+async def build_reference_context(message: str) -> tuple[str | None, list[ReferenceSource]]:
+    keywords = {token for token in re.findall(r"[a-z]+", message.lower()) if len(token) > 2}
+
+    selected = [
+        item
+        for item in REFERENCE_LIBRARY
+        if keywords.intersection(item["keywords"]) or item["title"].lower().find("fema") >= 0
+    ][:2]
+
+    if not selected:
+        selected = REFERENCE_LIBRARY[:1]
+
+    sources: list[ReferenceSource] = []
+    blocks: list[str] = []
+
+    for item in selected:
+        summary = item["fallback"]
+        try:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                response = await client.get(item["url"])
+                response.raise_for_status()
+                summary = _summarize_external_html(response.text)
+        except Exception:
+            pass
+
+        sources.append(ReferenceSource(title=item["title"], url=item["url"], summary=summary))
+        blocks.append(f"- {item['title']} ({item['url']}): {summary}")
+
+    if not blocks:
+        return None, []
+
+    return "External disaster references:\n" + "\n".join(blocks), sources
+
+
+def _summarize_external_html(html_text: str) -> str:
+    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", html_text)
+    title = html.unescape(title_match.group(1).strip()) if title_match else "External source"
+
+    cleaned = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html_text)
+    paragraphs = re.findall(r"(?is)<p[^>]*>(.*?)</p>", cleaned)
+    snippets: list[str] = []
+
+    for paragraph in paragraphs:
+        text = re.sub(r"(?is)<[^>]+>", " ", paragraph)
+        text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+        if len(text) >= 80:
+            snippets.append(text)
+        if len(snippets) == 2:
+            break
+
+    if not snippets:
+        text = re.sub(r"(?is)<[^>]+>", " ", cleaned)
+        text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+        snippets = [text[:220]] if text else []
+
+    if not snippets:
+        return title
+
+    snippet = " ".join(snippets)
+    if len(snippet) > 260:
+        snippet = snippet[:257].rsplit(" ", 1)[0] + "..."
+    return f"{title}: {snippet}"
+
+
+def _map_focus_from_building(context: BuildingContext | None) -> SpatialContext | None:
+    if not context or not context.centroid:
+        return None
+
+    return SpatialContext(
+        kind="building",
+        center=SpatialCenter(lng=context.centroid["lon"], lat=context.centroid["lat"]),
+        zoom=18,
+        building_ids=[context.building_id],
+        label=context.dataset_label,
+    )
+
+
 async def predict_for_building(building_id: str) -> PredictResponse:
     cached = prediction_cache.get(building_id)
     if cached:
@@ -309,12 +443,34 @@ async def _try_get_prediction(building_id: str | None) -> PredictResponse | None
 async def chat(req: ChatRequest) -> ChatResponse:
     context = _try_get_context(req.building_id)
     prediction = await _try_get_prediction(req.building_id)
+    spatial_focus = req.spatial_context or _map_focus_from_building(context)
+
+    if not is_disaster_related(req.message, req.building_id, req.spatial_context):
+        conversation_id = req.conversation_id or str(uuid.uuid4())
+        history = _history(conversation_id)
+        history.append(ChatMessage(role="user", content=req.message))
+
+        assistant_text = (
+            "I can only help with disaster-related questions, including building damage, "
+            "VLM predictions, evacuation guidance, FEMA resources, and map-focused emergency analysis."
+        )
+        history.append(ChatMessage(role="assistant", content=assistant_text))
+
+        return ChatResponse(
+            conversation_id=conversation_id,
+            building_id=req.building_id,
+            response=assistant_text,
+            prediction=prediction,
+            map_focus=spatial_focus,
+        )
 
     conversation_id = req.conversation_id or str(uuid.uuid4())
     history = _history(conversation_id)
     history.append(ChatMessage(role="user", content=req.message))
 
     bot = get_damage_chatbot()
+    reference_context, sources = await build_reference_context(req.message)
+    combined_context = "\n\n".join(part for part in [req.extra_context, reference_context] if part)
 
     if settings.chat_endpoint_url:
         external = await request_external_json(
@@ -324,6 +480,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 "conversation": [m.model_dump() for m in history],
                 "building_context": context.model_dump() if context else None,
                 "prediction": prediction.model_dump() if prediction else None,
+                "spatial_context": req.spatial_context.model_dump() if req.spatial_context else None,
+                "reference_context": reference_context,
             },
         )
         assistant_text = str(external.get("response", "No response from chat model."))
@@ -338,7 +496,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             assistant_text = bot.chat(
                 message=message_with_context,
                 session_id=conversation_id,
-                extra_context=req.extra_context,
+                extra_context=combined_context or None,
             )
         except Exception as exc:
             assistant_text = f"Chatbot error: {exc}"
@@ -363,6 +521,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 "to enable the damage-assessment chatbot."
             )
 
+    if sources:
+        source_lines = "\n".join(f"- {source.title}: {source.url}" for source in sources)
+        assistant_text = f"{assistant_text}\n\nSources consulted:\n{source_lines}"
+
     history.append(ChatMessage(role="assistant", content=assistant_text))
 
     return ChatResponse(
@@ -370,4 +532,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
         building_id=req.building_id,
         response=assistant_text,
         prediction=prediction,
+        map_focus=spatial_focus,
+        sources=sources,
     )

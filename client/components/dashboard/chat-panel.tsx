@@ -14,14 +14,24 @@ const SUGGESTIONS = [
   "List potentially unsafe buildings.",
 ];
 
+type MapFocus = {
+  kind: string;
+  center: { lng: number; lat: number } | null;
+  zoom?: number | null;
+  building_ids?: string[];
+  label?: string | null;
+};
+
 type ChatPanelProps = {
   className?: string;
   selectedBuildingId: string | null;
+  onMapFocus: (focus: MapFocus | null) => void;
 };
 
 type ChatApiResponse = {
   conversation_id: string;
   response: string;
+  map_focus?: MapFocus | null;
 };
 
 type ChatTurn = {
@@ -29,7 +39,7 @@ type ChatTurn = {
   text: string;
 };
 
-export function ChatPanel({ className, selectedBuildingId }: ChatPanelProps) {
+export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPanelProps) {
   const [message, setMessage] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -68,9 +78,11 @@ export function ChatPanel({ className, selectedBuildingId }: ChatPanelProps) {
 
       const payload = (await response.json()) as ChatApiResponse;
       setConversationId(payload.conversation_id);
+      onMapFocus(payload.map_focus ?? null);
       setTurns((prev) => [...prev, { role: "assistant", text: payload.response }]);
     } catch (err) {
       const detail = err instanceof Error ? err.message : "unknown error";
+      onMapFocus(null);
       setTurns((prev) => [...prev, { role: "assistant", text: `Error: ${detail}` }]);
     } finally {
       setIsSending(false);

@@ -5,7 +5,7 @@ import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
 
 import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
 import { Maximize2, Minimize2 } from "lucide-react";
-import { useId, useEffect, useRef, useState } from "react";
+import { useId, useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
@@ -18,6 +18,13 @@ type MapPanelProps = {
   onSelectBuilding: (buildingId: string) => void;
   onVisibleBuildingsChange: (buildingIds: string[]) => void;
   selectedDamageClasses?: string[];
+  focusTarget?: {
+    kind: string;
+    center: { lng: number; lat: number } | null;
+    zoom?: number | null;
+    building_ids?: string[];
+    label?: string | null;
+  } | null;
   className?: string;
 };
 
@@ -54,6 +61,7 @@ export function MapPanel({
   onSelectBuilding,
   onVisibleBuildingsChange,
   selectedDamageClasses,
+  focusTarget,
   className,
 }: MapPanelProps) {
   const mapContainerRef  = useRef<HTMLDivElement | null>(null);
@@ -67,6 +75,7 @@ export function MapPanel({
   const buildingsDataRef         = useRef<GeoJsonFeatureCollection>({ type: "FeatureCollection", features: [] });
   const selectedDamageClassesRef = useRef<string[]>(selectedDamageClasses ?? ["no_damage","minor","major","destroyed"]);
   const selectedBuildingIdRef    = useRef<string | null>(selectedBuildingId);
+  const focusTargetRef           = useRef<MapPanelProps["focusTarget"]>(focusTarget ?? null);
 
   const [imageryMode, setImageryMode]   = useState<ImageryMode>("none");
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
@@ -76,11 +85,30 @@ export function MapPanel({
   // Keep refs in sync with props/state
   useEffect(() => { selectedDamageClassesRef.current = selectedDamageClasses ?? ["no_damage","minor","major","destroyed"]; }, [selectedDamageClasses]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
+  useEffect(() => { focusTargetRef.current = focusTarget ?? null; }, [focusTarget]);
 
   const changeImageryMode = (mode: ImageryMode) => {
     imageryModeRef.current = mode;
     setImageryMode(mode);
   };
+
+  const applyFocusTarget = useCallback(
+    (map: import("mapbox-gl").Map, target: MapPanelProps["focusTarget"]) => {
+      if (!target?.center) return;
+
+      map.flyTo({
+        center: [target.center.lng, target.center.lat],
+        zoom: target.zoom ?? 17,
+        duration: 1400,
+      });
+
+      const primaryBuildingId = target.building_ids?.[0];
+      if (primaryBuildingId) {
+        onSelectBuilding(primaryBuildingId);
+      }
+    },
+    [onSelectBuilding],
+  );
 
   // ─── Layer setup helpers ───────────────────────────────────────────────────
 
@@ -227,6 +255,7 @@ export function MapPanel({
 
         setupCustomLayers(map);
         updateVisibleBuildings();
+        applyFocusTarget(map, focusTargetRef.current);
       });
 
       map.on("moveend", updateVisibleBuildings);
@@ -274,6 +303,13 @@ export function MapPanel({
     if (!map?.getLayer("buildings-selected-outline")) return;
     map.setFilter("buildings-selected-outline", ["==", ["get", "building_id"], selectedBuildingId ?? ""]);
   }, [selectedBuildingId]);
+
+  // ─── Chat-driven focus ────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyFocusTarget(map, focusTarget);
+  }, [applyFocusTarget, focusTarget]);
 
   // ─── Imagery mode ──────────────────────────────────────────────────────────
   useEffect(() => {

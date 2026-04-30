@@ -182,8 +182,8 @@ export function MapPanel({
       mapRef.current = new mapboxgl.Map({
         container: mapContainerRef.current,
         style: BASE_STYLE,
-        center: [-122.7144, 38.4403],
-        zoom: 13,
+        center: [-122.694374, 38.450821],
+        zoom: 14,
         minZoom: MAP_MIN_ZOOM,
         maxBounds: MAP_BOUNDS,
       });

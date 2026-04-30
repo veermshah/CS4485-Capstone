@@ -4,7 +4,9 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
 
 import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useId, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
 import { cn } from "@/lib/utils";
@@ -38,6 +40,8 @@ type MapboxWithAccessToken = typeof import("mapbox-gl") & { accessToken: string 
 type GeoJsonFeatureCollection = { type: string; features: unknown[] };
 
 const BASE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
+const MAP_BOUNDS: [[number, number], [number, number]] = [[-123.05, 38.2], [-122.35, 38.7]];
+const MAP_MIN_ZOOM = 11;
 
 const IMAGERY_BUTTONS: { mode: ImageryMode; label: string }[] = [
   { mode: "pre",  label: "Pre"  },
@@ -66,6 +70,7 @@ export function MapPanel({
 
   const [imageryMode, setImageryMode]   = useState<ImageryMode>("none");
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const mapContainerId = useId();
 
   // Keep refs in sync with props/state
@@ -85,7 +90,7 @@ export function MapPanel({
       map.addSource("imagery-pre", {
         type: "raster",
         tiles: [`${window.location.origin}/api/tiles/pre/{z}/{x}/{y}`],
-        tileSize: 256, minzoom: 18, maxzoom: 18,
+        tileSize: 256, minzoom: 14, maxzoom: 18,
         attribution: "xBD / xView2 pre-disaster imagery",
       });
     }
@@ -93,7 +98,7 @@ export function MapPanel({
       map.addSource("imagery-post", {
         type: "raster",
         tiles: [`${window.location.origin}/api/tiles/post/{z}/{x}/{y}`],
-        tileSize: 256, minzoom: 18, maxzoom: 18,
+        tileSize: 256, minzoom: 14, maxzoom: 18,
         attribution: "xBD / xView2 post-disaster imagery",
       });
     }
@@ -182,7 +187,8 @@ export function MapPanel({
         style: BASE_STYLE,
         center: [-122.7144, 38.4403],
         zoom: 13,
-        maxBounds: [[-123.05, 38.2], [-122.35, 38.7]],
+        minZoom: MAP_MIN_ZOOM,
+        maxBounds: MAP_BOUNDS,
       });
 
       mapRef.current.addControl(new mapboxgl.NavigationControl(), "top-right");
@@ -286,13 +292,54 @@ export function MapPanel({
     map.setFilter("buildings-outline", filter);
   }, [selectedDamageClasses]);
 
+  // Mapbox canvas needs an explicit resize after container size changes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const rafId = window.requestAnimationFrame(() => {
+      map.resize();
+    });
+    const timeoutId = window.setTimeout(() => {
+      map.resize();
+    }, 180);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [isExpanded]);
+
   // ──────────────────────────────────────────────────────────────────────────
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle>Wildfire Map</CardTitle>
+    <Card
+      className={cn(
+        className,
+        isExpanded && "fixed inset-4 z-50 h-auto w-auto shadow-2xl",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle>Map</CardTitle>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setIsExpanded((prev) => !prev)}
+        >
+          {isExpanded ? (
+            <>
+              <Minimize2 className="mr-2 h-4 w-4" />
+              Exit Fullscreen
+            </>
+          ) : (
+            <>
+              <Maximize2 className="mr-2 h-4 w-4" />
+              Expand
+            </>
+          )}
+        </Button>
       </CardHeader>
-      <CardContent className="h-[calc(100%-56px)]">
+      <CardContent className={cn(isExpanded ? "h-[calc(100vh-120px)]" : "h-[calc(100%-56px)]")}>
         <div className="relative h-full overflow-hidden rounded-md border">
           <div id={mapContainerId} ref={mapContainerRef} className="h-full w-full bg-muted" />
 

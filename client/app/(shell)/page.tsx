@@ -9,26 +9,111 @@ import { MapPanel } from "@/components/dashboard/map-panel";
 import { type RealBuilding } from "@/lib/buildings";
 import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
 
+type BuildingFeature = {
+  properties: RealBuilding;
+  geometry?: {
+    type?: string;
+    coordinates?: number[][][];
+  };
+};
+
+const FLAG_STORAGE_KEY = "firelens-flagged-buildings";
+
+function deriveCentroidFromRing(ring: number[][] | undefined): { lng: number; lat: number } | null {
+  if (!ring?.length) return null;
+
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const hasClosure = ring.length > 1 && first[0] === last[0] && first[1] === last[1];
+  const points = hasClosure ? ring.slice(0, -1) : ring;
+  if (!points.length) return null;
+
+  const sum = points.reduce(
+    (acc, [lng, lat]) => ({ lng: acc.lng + lng, lat: acc.lat + lat }),
+    { lng: 0, lat: 0 },
+  );
+
+  return {
+    lng: sum.lng / points.length,
+    lat: sum.lat / points.length,
+  };
+}
+
 export default function DashboardPage() {
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [visibleBuildingIds, setVisibleBuildingIds] = useState<string[]>([]);
   const [allBuildings, setAllBuildings] = useState<RealBuilding[]>([]);
   const [selectedDamageClasses, setSelectedDamageClasses] = useState<RealBuilding["damage_class"][]>(
     [...ALL_DAMAGE_CLASSES],
   );
+  const [flaggedBuildingIds, setFlaggedBuildingIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FLAG_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+        setFlaggedBuildingIds(parsed);
+      }
+    } catch {
+      // Ignore malformed persisted state.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FLAG_STORAGE_KEY, JSON.stringify(flaggedBuildingIds));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [flaggedBuildingIds]);
 
   // Fetch all buildings once from the API
   useEffect(() => {
-    getBuildingsGeojson()
-      .then((geojson) => {
-        if (!geojson?.features) return;
-        const buildings: RealBuilding[] = (geojson.features as Array<{
-          properties: RealBuilding;
-        }>).map((f) => f.properties);
-        setAllBuildings(buildings);
-      })
-      .catch(() => {/* silent */});
+    let cancelled = false;
+
+    const applyGeojson = (geojson: { features?: unknown[] } | null) => {
+      if (!geojson?.features || cancelled) return false;
+      const buildings: RealBuilding[] = (geojson.features as BuildingFeature[]).map((f) => {
+        const props = f.properties;
+        if (typeof props.centroid_lng === "number" && typeof props.centroid_lat === "number") {
+          return props;
+        }
+
+        const derived = deriveCentroidFromRing(f.geometry?.coordinates?.[0]);
+        if (!derived) return props;
+
+        return {
+          ...props,
+          centroid_lng: derived.lng,
+          centroid_lat: derived.lat,
+        };
+      });
+      setAllBuildings(buildings);
+      return true;
+    };
+
+    const loadBuildings = async () => {
+      try {
+        const first = await getBuildingsGeojson();
+        if (applyGeojson(first)) return;
+
+        // One retry helps with transient dev-server/env race conditions.
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const second = await getBuildingsGeojson();
+        applyGeojson(second);
+      } catch {
+        // silent
+      }
+    };
+
+    void loadBuildings();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const selectedBuilding = useMemo(
@@ -47,9 +132,17 @@ export default function DashboardPage() {
     [allBuildings, visibleBuildingIds, selectedDamageClasses],
   );
 
+    const toggleFlaggedBuilding = (buildingId: string) => {
+      setFlaggedBuildingIds((current) =>
+        current.includes(buildingId)
+          ? current.filter((id) => id !== buildingId)
+          : [...current, buildingId],
+      );
+    };
+
   return (
-    <div className="grid grid-cols-[minmax(0,1.65fr)_minmax(340px,1fr)] grid-rows-[620px_320px] gap-4">
-      <div className="min-h-0">
+    <div className="grid grid-cols-[minmax(0,2.35fr)_minmax(320px,1fr)] grid-rows-[700px_240px] gap-4">
+      <div className="col-start-1 row-start-1 min-h-0">
         <MapPanel
           selectedBuildingId={selectedBuildingId}
           onSelectBuilding={setSelectedBuildingId}
@@ -59,23 +152,22 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="min-h-0">
+      <div className="col-start-1 row-start-2 min-h-0">
         <ChatPanel className="h-full" selectedBuildingId={selectedBuildingId} />
       </div>
 
-      <div className="min-h-0">
+      <div className="col-start-2 row-start-1 min-h-0">
         <BuildingsPanel
           buildings={visibleBuildings}
           selectedBuildingId={selectedBuildingId}
           onSelectBuilding={setSelectedBuildingId}
+          flaggedBuildingIds={flaggedBuildingIds}
           className="h-full"
         />
       </div>
 
-      <div className="min-h-0">
+      <div className="col-start-2 row-start-2 min-h-0">
         <FiltersPanel
-          collapsed={filtersCollapsed}
-          onToggle={() => setFiltersCollapsed((prev) => !prev)}
           selectedDamageClasses={selectedDamageClasses}
           onDamageClassesChange={setSelectedDamageClasses}
           className="h-full"
@@ -86,6 +178,12 @@ export default function DashboardPage() {
         building={selectedBuilding}
         open={Boolean(selectedBuilding)}
         onOpenChange={(open) => { if (!open) setSelectedBuildingId(null); }}
+        isFlagged={selectedBuilding ? flaggedBuildingIds.includes(selectedBuilding.building_id) : false}
+        onToggleFlag={() => {
+          if (selectedBuilding) {
+            toggleFlaggedBuilding(selectedBuilding.building_id);
+          }
+        }}
       />
     </div>
   );

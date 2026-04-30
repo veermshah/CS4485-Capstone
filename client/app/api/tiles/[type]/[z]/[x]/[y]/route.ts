@@ -5,7 +5,7 @@
  *   type  = "pre" | "post"
  *   z/x/y = standard Web Mercator tile coordinates
  *
- * Only zoom levels 16-18 are processed (source imagery is ~0.47 m/px which
+ * Zoom levels 14-18 are processed (source imagery is ~0.47 m/px which
  * aligns to zoom 18 at this latitude). Mapbox overzooms above 18 client-side.
  *
  * For each request the server:
@@ -21,15 +21,17 @@ import { findOverlappingTiles, type TileCorners } from "@/lib/server/tile-metada
 
 const TILE_SIZE = 256;
 const SOURCE_SIZE = 1024;
-const MIN_ZOOM = 16;
+const MIN_ZOOM = 14;
 const MAX_ZOOM = 18;
 const TILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TILE_CACHE_MAX_ENTRIES = 2000;
+const SOURCE_IMAGE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 type Params = { type: string; z: string; x: string; y: string };
 
 // In-memory tile cache: key → PNG buffer
 const tileCache = new Map<string, { value: Buffer; createdAt: number }>();
+const sourceImageCache = new Map<string, { value: Buffer; createdAt: number }>();
 
 function getCachedTile(cacheKey: string): Buffer | null {
   const entry = tileCache.get(cacheKey);
@@ -56,6 +58,22 @@ function setCachedTile(cacheKey: string, value: Buffer): void {
     if (!oldestKey) break;
     tileCache.delete(oldestKey);
   }
+}
+
+async function getSourceImageBuffer(imageUrl: string): Promise<Buffer | null> {
+  const cached = sourceImageCache.get(imageUrl);
+  if (cached && Date.now() - cached.createdAt <= SOURCE_IMAGE_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const response = await fetch(imageUrl, { cache: "force-cache" });
+  if (!response.ok) return null;
+
+  const bytes = await response.arrayBuffer();
+  const buffer = Buffer.from(bytes);
+  sourceImageCache.set(imageUrl, { value: buffer, createdAt: Date.now() });
+
+  return buffer;
 }
 
 // A 256×256 fully-transparent PNG returned for tiles with no data.
@@ -100,7 +118,7 @@ export async function GET(
     return pngResponse(cached);
   }
 
-  const overlapping = findOverlappingTiles(type, z, x, y);
+  const overlapping = await findOverlappingTiles(type, z, x, y);
   if (!overlapping.length) {
     return pngResponse(await emptyTile());
   }
@@ -123,7 +141,10 @@ export async function GET(
     if (srcWidth < 1 || srcHeight < 1 || dstWidth < 1 || dstHeight < 1) continue;
 
     try {
-      const cropped = await sharp(source.imagePath)
+      const sourceBuffer = await getSourceImageBuffer(source.imageUrl);
+      if (!sourceBuffer) continue;
+
+      const cropped = await sharp(sourceBuffer)
         .extract({
           left: Math.max(0, Math.round(srcLeft)),
           top: Math.max(0, Math.round(srcTop)),

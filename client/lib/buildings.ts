@@ -5,6 +5,8 @@ export type RealBuilding = {
   tile_id: string;
   damage_class: "no_damage" | "minor" | "major" | "destroyed";
   subtype: string;
+  centroid_lng?: number | null;
+  centroid_lat?: number | null;
   confidence: number;
 };
 

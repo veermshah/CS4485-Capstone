@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -8,7 +9,12 @@ type BuildingsPanelProps = {
   buildings: RealBuilding[];
   selectedBuildingId: string | null;
   onSelectBuilding: (buildingId: string) => void;
+  flaggedBuildingIds: string[];
   className?: string;
+};
+
+type LocationInfo = {
+  full_address: string | null;
 };
 
 const DAMAGE_BADGE_VARIANT: Record<
@@ -25,8 +31,103 @@ export function BuildingsPanel({
   buildings,
   selectedBuildingId,
   onSelectBuilding,
+  flaggedBuildingIds,
   className,
 }: BuildingsPanelProps) {
+  const [addressByBuildingId, setAddressByBuildingId] = useState<Record<string, string>>({});
+  const [loadingAddressIds, setLoadingAddressIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const visibleBuildings = buildings.slice(0, 50);
+
+    if (!visibleBuildings.length) {
+      setAddressByBuildingId({});
+      setLoadingAddressIds([]);
+      return () => controller.abort();
+    }
+
+    setAddressByBuildingId((current) => {
+      const next: Record<string, string> = {};
+
+      for (const building of visibleBuildings) {
+        const cachedAddress = current[building.building_id];
+        if (cachedAddress) {
+          next[building.building_id] = cachedAddress;
+        }
+      }
+
+      return next;
+    });
+
+    const idsToFetch = visibleBuildings
+      .filter(
+        (building) =>
+          !addressByBuildingId[building.building_id] &&
+          typeof building.centroid_lat === "number" &&
+          typeof building.centroid_lng === "number",
+      )
+      .map((building) => building.building_id);
+
+    setLoadingAddressIds(idsToFetch);
+
+    if (!idsToFetch.length) {
+      return () => controller.abort();
+    }
+
+    void Promise.all(
+      visibleBuildings.map(async (building) => {
+        if (typeof building.centroid_lat !== "number" || typeof building.centroid_lng !== "number") {
+          return null;
+        }
+
+        const response = await fetch(
+          `/api/location-info?lat=${building.centroid_lat}&lng=${building.centroid_lng}`,
+          { signal: controller.signal },
+        );
+
+        if (!response.ok) {
+          return null;
+        }
+
+        const payload = (await response.json()) as LocationInfo;
+        return payload.full_address?.trim() ?? null;
+      }),
+    )
+      .then((addresses) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setLoadingAddressIds((current) =>
+          current.filter((id) => !idsToFetch.includes(id)),
+        );
+
+        setAddressByBuildingId((current) => {
+          const next = { ...current };
+
+          visibleBuildings.forEach((building, index) => {
+            const address = addresses[index];
+            if (address) {
+              next[building.building_id] = address;
+            }
+          });
+
+          return next;
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setLoadingAddressIds((current) =>
+            current.filter((id) => !idsToFetch.includes(id)),
+          );
+        }
+        // Keep the unavailable label if any lookup fails.
+      });
+
+    return () => controller.abort();
+  }, [buildings]);
+
   return (
     <Card className={className}>
       <CardHeader>
@@ -45,6 +146,9 @@ export function BuildingsPanel({
             <div className="space-y-1.5">
               {buildings.slice(0, 50).map((building) => {
                 const active = selectedBuildingId === building.building_id;
+                const address = addressByBuildingId[building.building_id];
+                const isFlagged = flaggedBuildingIds.includes(building.building_id);
+                const isLoadingAddress = loadingAddressIds.includes(building.building_id);
                 return (
                   <button
                     key={building.building_id}
@@ -55,13 +159,16 @@ export function BuildingsPanel({
                       active ? "border-primary bg-primary/10" : "hover:bg-muted",
                     )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-mono text-xs text-muted-foreground">
-                        {building.uid.slice(0, 8)}…
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 flex-1 text-sm leading-snug text-foreground">
+                        {address ?? (isLoadingAddress ? "Loading address..." : "Address unavailable")}
                       </span>
-                      <Badge variant={DAMAGE_BADGE_VARIANT[building.damage_class]}>
-                        {DAMAGE_LABEL[building.damage_class]}
-                      </Badge>
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                        <Badge variant={DAMAGE_BADGE_VARIANT[building.damage_class]}>
+                          {DAMAGE_LABEL[building.damage_class]}
+                        </Badge>
+                        {isFlagged && <Badge variant="destructive">Flagged</Badge>}
+                      </div>
                     </div>
                   </button>
                 );

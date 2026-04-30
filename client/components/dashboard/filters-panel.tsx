@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -21,24 +20,14 @@ export const ALL_DAMAGE_CLASSES: RealBuilding["damage_class"][] = [
 ];
 
 type FiltersPanelProps = {
-  collapsed: boolean;
-  onToggle: () => void;
   selectedDamageClasses: RealBuilding["damage_class"][];
   onDamageClassesChange: (classes: RealBuilding["damage_class"][]) => void;
-  flaggedBuildings: RealBuilding[];
-  flaggedVisibleBuildings: RealBuilding[];
-  estimatedAccuracyPct: number | null;
   className?: string;
 };
 
 export function FiltersPanel({
-  collapsed,
-  onToggle,
   selectedDamageClasses,
   onDamageClassesChange,
-  flaggedBuildings,
-  flaggedVisibleBuildings,
-  estimatedAccuracyPct,
   className,
 }: FiltersPanelProps) {
   const damageLabel = useMemo(() => {
@@ -57,28 +46,10 @@ export function FiltersPanel({
     );
   };
 
-  if (collapsed) {
-    return (
-      <Card className={className}>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" size="sm" onClick={onToggle}>
-            Expand
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card className={cn("h-full", className)}>
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
+      <CardHeader className="pb-3">
         <CardTitle className="text-sm">Filters</CardTitle>
-        <Button variant="outline" size="sm" onClick={onToggle}>
-          Collapse
-        </Button>
       </CardHeader>
 
       <CardContent className="h-[calc(100%-56px)] space-y-4 overflow-auto">
@@ -108,42 +79,6 @@ export function FiltersPanel({
           <p className="text-xs text-muted-foreground">At least one class must remain selected.</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Button size="sm" onClick={() => onDamageClassesChange([...ALL_DAMAGE_CLASSES])}>
-            Reset
-          </Button>
-          <Button size="sm" variant="secondary" disabled>
-            Export
-          </Button>
-        </div>
-
-        <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-          <div>
-            <p className="text-sm font-medium">Flag summary</p>
-            <p className="text-xs text-muted-foreground">
-              Buildings flagged from the detail view are treated as model misses or questionable labels.
-            </p>
-          </div>
-
-          <Separator />
-
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div>
-              <p className="text-muted-foreground">Flagged total</p>
-              <p className="text-base font-semibold">{flaggedBuildings.length}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">In current view</p>
-              <p className="text-base font-semibold">{flaggedVisibleBuildings.length}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Accuracy est.</p>
-              <p className="text-base font-semibold">
-                {estimatedAccuracyPct === null ? "N/A" : `${estimatedAccuracyPct.toFixed(1)}%`}
-              </p>
-            </div>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );

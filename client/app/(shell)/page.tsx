@@ -40,7 +40,6 @@ function deriveCentroidFromRing(ring: number[][] | undefined): { lng: number; la
 }
 
 export default function DashboardPage() {
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [visibleBuildingIds, setVisibleBuildingIds] = useState<string[]>([]);
   const [allBuildings, setAllBuildings] = useState<RealBuilding[]>([]);
@@ -122,11 +121,6 @@ export default function DashboardPage() {
     [allBuildings, selectedBuildingId],
   );
 
-  const flaggedBuildings = useMemo(
-    () => allBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
-    [allBuildings, flaggedBuildingIds],
-  );
-
   // Only buildings visible on the map AND matching the active damage class filter
   const visibleBuildings = useMemo(
     () =>
@@ -137,16 +131,6 @@ export default function DashboardPage() {
       ),
     [allBuildings, visibleBuildingIds, selectedDamageClasses],
   );
-
-    const flaggedVisibleBuildings = useMemo(
-      () => visibleBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
-      [visibleBuildings, flaggedBuildingIds],
-    );
-
-    const estimatedAccuracyPct =
-      visibleBuildings.length > 0
-        ? Math.max(0, 100 - (flaggedVisibleBuildings.length / visibleBuildings.length) * 100)
-        : null;
 
     const toggleFlaggedBuilding = (buildingId: string) => {
       setFlaggedBuildingIds((current) =>
@@ -184,13 +168,8 @@ export default function DashboardPage() {
 
       <div className="col-start-2 row-start-2 min-h-0">
         <FiltersPanel
-          collapsed={filtersCollapsed}
-          onToggle={() => setFiltersCollapsed((prev) => !prev)}
           selectedDamageClasses={selectedDamageClasses}
           onDamageClassesChange={setSelectedDamageClasses}
-          flaggedBuildings={flaggedBuildings}
-          flaggedVisibleBuildings={flaggedVisibleBuildings}
-          estimatedAccuracyPct={estimatedAccuracyPct}
           className="h-full"
         />
       </div>

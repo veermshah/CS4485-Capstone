@@ -26,6 +26,18 @@ export function Topbar() {
           Santa Rosa Wildfire
         </Badge>
 
+        <nav className="ml-2 flex items-center gap-1">
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/">Overview</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/metrics">Metrics</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/evaluate">Evaluate</Link>
+          </Button>
+        </nav>
+
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant="outline"

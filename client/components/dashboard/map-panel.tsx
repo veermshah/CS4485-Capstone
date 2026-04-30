@@ -4,7 +4,9 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
 
 import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useId, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBuildingsGeojson } from "@/lib/buildings-client-cache";
 import { cn } from "@/lib/utils";
@@ -68,6 +70,7 @@ export function MapPanel({
 
   const [imageryMode, setImageryMode]   = useState<ImageryMode>("none");
   const [hoverTooltip, setHoverTooltip] = useState<HoverTooltip | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const mapContainerId = useId();
 
   // Keep refs in sync with props/state
@@ -289,13 +292,54 @@ export function MapPanel({
     map.setFilter("buildings-outline", filter);
   }, [selectedDamageClasses]);
 
+  // Mapbox canvas needs an explicit resize after container size changes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const rafId = window.requestAnimationFrame(() => {
+      map.resize();
+    });
+    const timeoutId = window.setTimeout(() => {
+      map.resize();
+    }, 180);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [isExpanded]);
+
   // ──────────────────────────────────────────────────────────────────────────
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle>Wildfire Map</CardTitle>
+    <Card
+      className={cn(
+        className,
+        isExpanded && "fixed inset-4 z-50 h-auto w-auto shadow-2xl",
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle>Map</CardTitle>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setIsExpanded((prev) => !prev)}
+        >
+          {isExpanded ? (
+            <>
+              <Minimize2 className="mr-2 h-4 w-4" />
+              Exit Fullscreen
+            </>
+          ) : (
+            <>
+              <Maximize2 className="mr-2 h-4 w-4" />
+              Expand
+            </>
+          )}
+        </Button>
       </CardHeader>
-      <CardContent className="h-[calc(100%-56px)]">
+      <CardContent className={cn(isExpanded ? "h-[calc(100vh-120px)]" : "h-[calc(100%-56px)]")}>
         <div className="relative h-full overflow-hidden rounded-md border">
           <div id={mapContainerId} ref={mapContainerRef} className="h-full w-full bg-muted" />
 

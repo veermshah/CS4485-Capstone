@@ -57,7 +57,7 @@ def generate(pre_disaster_path: str, post_disaster_path: str) -> dict:
     pre_image = Image.open(pre_disaster_path)
     post_image = Image.open(post_disaster_path)
 
-    model = "gemini-2.5-flash"
+    model = "gemini-1.5-flash"
     contents = [pre_image, post_image]
     config = types.GenerateContentConfig(
         temperature=0.3,

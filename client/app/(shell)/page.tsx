@@ -176,6 +176,22 @@ export default function DashboardPage() {
       );
     };
 
+  const handleSelectBuildingFromPanel = (buildingId: string) => {
+    setSelectedBuildingId(buildingId);
+    
+    // Create a focus target for the map
+    const building = allBuildings.find((b) => b.building_id === buildingId);
+    if (building && typeof building.centroid_lat === "number" && typeof building.centroid_lng === "number") {
+      setChatMapFocus({
+        kind: "building",
+        center: { lng: building.centroid_lng, lat: building.centroid_lat },
+        zoom: 18,
+        building_ids: [buildingId],
+        label: building.building_id,
+      });
+    }
+  };
+
   return (
     <div className="h-[calc(100vh-7rem)] min-h-[600px]">
       <ResizablePanelGroup
@@ -224,7 +240,7 @@ export default function DashboardPage() {
               <BuildingsPanel
                 buildings={visibleBuildings}
                 selectedBuildingId={selectedBuildingId}
-                onSelectBuilding={setSelectedBuildingId}
+                onSelectBuilding={handleSelectBuildingFromPanel}
                 flaggedBuildingIds={flaggedBuildingIds}
                 className="h-full"
               />

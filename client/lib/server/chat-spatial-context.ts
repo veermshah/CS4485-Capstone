@@ -42,6 +42,7 @@ let buildingsCache: { at: number; data: FeatureCollection | null } | null = null
 
 const ADDRESS_INTENT = /\b(?:\d{1,6}\s+\w+|street|st\.?|road|rd\.?|avenue|ave\.?|drive|dr\.?|boulevard|blvd\.?|lane|ln\.?|way|court|ct\.?|circle|cir\.?|highway|hwy\.?|place|pl\.?|parkway|pkwy\.?)\b/i;
 const CLUSTER_INTENT = /\b(cluster|hotspot|concentrated|prioritize|priority|severe|severely|worst|most damaged|where.*(damage|damaged|destroyed)|areas?|neighborhood|zone|response|responder|unsafe|inspection|urgent)\b/i;
+const LEAST_DAMAGED_INTENT = /\b(least|minimal|lowest|least.damage|minimal.damage|lowest.damage|undamaged|no.damage|minimum)\b/i;
 const UNSAFE_INTENT = /\b(unsafe|destroyed|condemn|collapse|list.*destroyed|list.*unsafe)\b/i;
 
 export async function buildSpatialContext(
@@ -62,7 +63,8 @@ export async function buildSpatialContext(
   // that don't trigger a more specific lookup.
   blocks.push(globalDigest(buildings));
 
-  if (CLUSTER_INTENT.test(message)) {
+  // Skip severe hotspot zoom if asking about least/minimal damage
+  if (CLUSTER_INTENT.test(message) && !LEAST_DAMAGED_INTENT.test(message)) {
     const hotspot = severeHotspotDigest(buildings);
     blocks.push(hotspot.prompt);
     focus ??= hotspot.focus;

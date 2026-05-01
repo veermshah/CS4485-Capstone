@@ -449,7 +449,7 @@ async def _evaluate_damage_pair(pre_image: UploadFile, post_image: UploadFile) -
     chunks: list[str] = []
     try:
         for chunk in client.models.generate_content_stream(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             contents=[pre, post],
             config=config,
         ):
@@ -466,7 +466,7 @@ async def _evaluate_damage_pair(pre_image: UploadFile, post_image: UploadFile) -
 
     damage_level = str(parsed.get("damage_level", "")).strip()
     return EvaluateResponse(
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash",
         damage_class=_normalize_damage_label(damage_level),
         confidence=float(parsed.get("confidence_score", 0.0)),
         rationale=str(parsed.get("reasoning", "No rationale provided.")),

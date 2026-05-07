@@ -49,6 +49,7 @@ type GeoJsonFeatureCollection = { type: string; features: unknown[] };
 const BASE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
 const MAP_BOUNDS: [[number, number], [number, number]] = [[-123.05, 38.2], [-122.35, 38.7]];
 const MAP_MIN_ZOOM = 11;
+const MAP_MAX_ZOOM = 18;
 
 const IMAGERY_BUTTONS: { mode: ImageryMode; label: string }[] = [
   { mode: "pre",  label: "Pre"  },
@@ -216,6 +217,7 @@ export function MapPanel({
         center: [-122.694374, 38.450821],
         zoom: 14,
         minZoom: MAP_MIN_ZOOM,
+        maxZoom: MAP_MAX_ZOOM,
         maxBounds: MAP_BOUNDS,
       });
 

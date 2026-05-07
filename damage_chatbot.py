@@ -372,7 +372,7 @@ class DamageChatbot:
             ]
 
         response = self.client.models.generate_content(
-            model="models/gemini-1.5-flash",
+            model="models/gemini-2.5-flash-lite",
             contents=messages,
         )
         reply = response.text

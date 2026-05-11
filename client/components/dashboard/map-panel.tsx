@@ -18,6 +18,8 @@ type MapPanelProps = {
   onSelectBuilding: (buildingId: string) => void;
   onVisibleBuildingsChange: (buildingIds: string[]) => void;
   selectedDamageClasses?: string[];
+  /** Outlined in magenta on the map when non-empty. */
+  flaggedBuildingIds?: string[];
   focusTarget?: {
     kind: string;
     center: { lng: number; lat: number } | null;
@@ -57,11 +59,14 @@ const IMAGERY_BUTTONS: { mode: ImageryMode; label: string }[] = [
   { mode: "none", label: "Base" },
 ];
 
+const FLAGGED_OUTLINE_COLOR = "#ff00ff";
+
 export function MapPanel({
   selectedBuildingId,
   onSelectBuilding,
   onVisibleBuildingsChange,
   selectedDamageClasses,
+  flaggedBuildingIds = [],
   focusTarget,
   className,
 }: MapPanelProps) {
@@ -76,6 +81,7 @@ export function MapPanel({
   const buildingsDataRef         = useRef<GeoJsonFeatureCollection>({ type: "FeatureCollection", features: [] });
   const selectedDamageClassesRef = useRef<string[]>(selectedDamageClasses ?? ["no_damage","minor","major","destroyed"]);
   const selectedBuildingIdRef    = useRef<string | null>(selectedBuildingId);
+  const flaggedBuildingIdsRef    = useRef<string[]>(flaggedBuildingIds);
   const focusTargetRef           = useRef<MapPanelProps["focusTarget"]>(focusTarget ?? null);
 
   const [imageryMode, setImageryMode]   = useState<ImageryMode>("none");
@@ -86,6 +92,7 @@ export function MapPanel({
   // Keep refs in sync with props/state
   useEffect(() => { selectedDamageClassesRef.current = selectedDamageClasses ?? ["no_damage","minor","major","destroyed"]; }, [selectedDamageClasses]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
+  useEffect(() => { flaggedBuildingIdsRef.current = flaggedBuildingIds; }, [flaggedBuildingIds]);
   useEffect(() => { focusTargetRef.current = focusTarget ?? null; }, [focusTarget]);
 
   const changeImageryMode = (mode: ImageryMode) => {
@@ -165,6 +172,19 @@ export function MapPanel({
         paint: { "line-color": "#ffffff", "line-width": 1, "line-opacity": 0.9 },
       });
     }
+    if (!map.getLayer("buildings-flagged-outline")) {
+      map.addLayer({
+        id: "buildings-flagged-outline",
+        type: "line",
+        source: "buildings",
+        filter: ["in", ["get", "building_id"], ["literal", flaggedBuildingIdsRef.current]],
+        paint: {
+          "line-color": FLAGGED_OUTLINE_COLOR,
+          "line-width": 3,
+          "line-opacity": 1,
+        },
+      });
+    }
     if (!map.getLayer("buildings-selected-outline")) {
       map.addLayer({
         id: "buildings-selected-outline", type: "line", source: "buildings",
@@ -183,6 +203,12 @@ export function MapPanel({
       const filter = ["in", ["get", "damage_class"], ["literal", active]] as Parameters<typeof map.setFilter>[1];
       map.setFilter("buildings-fill",    filter);
       map.setFilter("buildings-outline", filter);
+    }
+    if (map.getLayer("buildings-flagged-outline")) {
+      const flaggedFilter = ["in", ["get", "building_id"], ["literal", flaggedBuildingIdsRef.current]] as Parameters<
+        typeof map.setFilter
+      >[1];
+      map.setFilter("buildings-flagged-outline", flaggedFilter);
     }
     if (map.getLayer("buildings-selected-outline")) {
       map.setFilter("buildings-selected-outline", ["==", ["get", "building_id"], selectedBuildingIdRef.current ?? ""]);
@@ -319,6 +345,16 @@ export function MapPanel({
     if (!map?.getLayer("imagery-pre-layer")) return;
     applyImageryVisibility(map, imageryMode, baseLayerIdsRef.current);
   }, [imageryMode]);
+
+  // ─── Flagged buildings (magenta outline) ─────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.getLayer("buildings-flagged-outline")) return;
+    const flaggedFilter = ["in", ["get", "building_id"], ["literal", flaggedBuildingIds]] as Parameters<
+      typeof map.setFilter
+    >[1];
+    map.setFilter("buildings-flagged-outline", flaggedFilter);
+  }, [flaggedBuildingIds]);
 
   // ─── Damage class filter ───────────────────────────────────────────────────
   useEffect(() => {

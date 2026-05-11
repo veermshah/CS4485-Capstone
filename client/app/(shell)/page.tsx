@@ -45,7 +45,6 @@ function deriveCentroidFromRing(ring: number[][] | undefined): { lng: number; la
 }
 
 export default function DashboardPage() {
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [chatMapFocus, setChatMapFocus] = useState<{
     kind: string;
@@ -142,11 +141,6 @@ export default function DashboardPage() {
     [allBuildings, selectedBuildingId],
   );
 
-  const flaggedBuildings = useMemo(
-    () => allBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
-    [allBuildings, flaggedBuildingIds],
-  );
-
   // Only buildings visible on the map AND matching the active damage class filter
   const visibleBuildings = useMemo(
     () =>
@@ -158,23 +152,13 @@ export default function DashboardPage() {
     [allBuildings, visibleBuildingIds, selectedDamageClasses],
   );
 
-    const flaggedVisibleBuildings = useMemo(
-      () => visibleBuildings.filter((building) => flaggedBuildingIds.includes(building.building_id)),
-      [visibleBuildings, flaggedBuildingIds],
+  const toggleFlaggedBuilding = (buildingId: string) => {
+    setFlaggedBuildingIds((current) =>
+      current.includes(buildingId)
+        ? current.filter((id) => id !== buildingId)
+        : [...current, buildingId],
     );
-
-    const estimatedAccuracyPct =
-      visibleBuildings.length > 0
-        ? Math.max(0, 100 - (flaggedVisibleBuildings.length / visibleBuildings.length) * 100)
-        : null;
-
-    const toggleFlaggedBuilding = (buildingId: string) => {
-      setFlaggedBuildingIds((current) =>
-        current.includes(buildingId)
-          ? current.filter((id) => id !== buildingId)
-          : [...current, buildingId],
-      );
-    };
+  };
 
   const handleSelectBuildingFromPanel = (buildingId: string) => {
     setSelectedBuildingId(buildingId);
@@ -211,6 +195,7 @@ export default function DashboardPage() {
                 onSelectBuilding={setSelectedBuildingId}
                 onVisibleBuildingsChange={setVisibleBuildingIds}
                 selectedDamageClasses={selectedDamageClasses}
+                flaggedBuildingIds={flaggedBuildingIds}
                 focusTarget={chatMapFocus}
                 className="h-full"
               />
@@ -250,13 +235,8 @@ export default function DashboardPage() {
 
             <ResizablePanel defaultSize={30} minSize={15}>
               <FiltersPanel
-                collapsed={filtersCollapsed}
-                onToggle={() => setFiltersCollapsed((prev) => !prev)}
                 selectedDamageClasses={selectedDamageClasses}
                 onDamageClassesChange={setSelectedDamageClasses}
-                flaggedBuildings={flaggedBuildings}
-                flaggedVisibleBuildings={flaggedVisibleBuildings}
-                estimatedAccuracyPct={estimatedAccuracyPct}
                 className="h-full"
               />
             </ResizablePanel>

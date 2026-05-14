@@ -26,6 +26,8 @@ const MAX_ZOOM = 18;
 const TILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TILE_CACHE_MAX_ENTRIES = 2000;
 const SOURCE_IMAGE_CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_CONTROL_COMPLETE = "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800, immutable";
+const CACHE_CONTROL_PARTIAL = "public, max-age=30, s-maxage=30, must-revalidate";
 
 type Params = { type: string; z: string; x: string; y: string };
 
@@ -123,18 +125,18 @@ export async function GET(
   const y = parseInt(yStr, 10);
 
   if (isNaN(z) || isNaN(x) || isNaN(y) || z < MIN_ZOOM || z > MAX_ZOOM) {
-    return pngResponse(await emptyTile());
+    return pngResponse(await emptyTile(), CACHE_CONTROL_COMPLETE);
   }
 
   const cacheKey = `${type}/${z}/${x}/${y}`;
   const cached = getCachedTile(cacheKey);
   if (cached) {
-    return pngResponse(cached);
+    return pngResponse(cached, CACHE_CONTROL_COMPLETE);
   }
 
   const overlapping = await findOverlappingTiles(type, z, x, y);
   if (!overlapping.length) {
-    return pngResponse(await emptyTile());
+    return pngResponse(await emptyTile(), CACHE_CONTROL_COMPLETE);
   }
 
   // Geographic bbox of the requested Mapbox tile
@@ -186,7 +188,7 @@ export async function GET(
   }
 
   if (!composites.length) {
-    return pngResponse(await emptyTile());
+    return pngResponse(await emptyTile(), CACHE_CONTROL_PARTIAL);
   }
 
   const output = await sharp({
@@ -205,15 +207,15 @@ export async function GET(
     setCachedTile(cacheKey, output);
   }
 
-  return pngResponse(output);
+  return pngResponse(output, allSourcesContributed ? CACHE_CONTROL_COMPLETE : CACHE_CONTROL_PARTIAL);
 }
 
-function pngResponse(buf: Buffer) {
+function pngResponse(buf: Buffer, cacheControl: string) {
   return new NextResponse(new Uint8Array(buf), {
     status: 200,
     headers: {
       "Content-Type": "image/png",
-      "Cache-Control": "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800, immutable",
+      "Cache-Control": cacheControl,
     },
   });
 }

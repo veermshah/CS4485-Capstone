@@ -400,7 +400,7 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
     const explicitUid = extractUid(text);
     updateThread(threadId, (thread) => {
-      const nextTurns = [...thread.turns, { role: "user", text, timestamp: now }];
+      const nextTurns = [...thread.turns, { role: "user" as const, text, timestamp: now }];
       const showNotice = !thread.sleepNoticeShown;
 
       const title =

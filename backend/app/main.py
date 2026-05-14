@@ -7,6 +7,8 @@ import json
 import re
 import sys
 import uuid
+import time
+import ast
 from functools import lru_cache
 from pathlib import Path
 from statistics import mean
@@ -41,6 +43,12 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     gemini_api_key: str | None = None
     public_base_url: str = "http://localhost:3000"
+    search_provider: str | None = None
+    search_api_key: str | None = None
+    search_endpoint_url: str | None = None
+    search_result_limit: int = 3
+    search_cache_ttl_seconds: int = 6 * 60 * 60
+    search_summary_cache_ttl_seconds: int = 24 * 60 * 60
 
 
 class BuildingContext(BaseModel):
@@ -117,10 +125,11 @@ class ChatResponse(BaseModel):
     sources: list[ReferenceSource] = Field(default_factory=list)
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
 CROPS_DIR = OUTPUT_DIR / "crops"
 CSV_PATH = OUTPUT_DIR / "dataset_records.csv"
+EVALUATION_CSV_PATH = ROOT_DIR / "evaluation_results.csv"
 
 
 app = FastAPI(title="FireLens Backend", version="0.1.0")
@@ -138,6 +147,8 @@ app.add_middleware(
 # In-memory stores for prototype phase.
 prediction_cache: dict[str, PredictResponse] = {}
 conversation_store: dict[str, list[ChatMessage]] = {}
+search_cache: dict[str, tuple[float, list[dict[str, str | None]]]] = {}
+summary_cache: dict[str, tuple[float, str]] = {}
 
 
 EVALUATION_SYSTEM_PROMPT = """You are a specialized Disaster Assessment AI. Your objective is to perform automated, building-level structural damage analysis by comparing pre-disaster and post-disaster aerial imagery.
@@ -169,7 +180,12 @@ VLM_TO_API_DAMAGE_CLASS = {
 
 
 DISASTER_QUERY_PATTERN = re.compile(
-    r"\b(disaster|wildfire|fire|smoke|ash|evacuat|emergency|response|recovery|damage|damaged|destroyed|building|buildings|fema|vlm|prediction|assessment|hotspot|unsafe|shelter|rescue|storm|flood|hurricane|tornado|earthquake|aftershock|outage|inspection)\b",
+    r"\b(disaster|wildfire|fire|smoke|ash|evacuat|emergency|response|recovery|damage|damaged|destroyed|building|buildings|fema|vlm|prediction|assessment|hotspot|unsafe|shelter|rescue|storm|flood|hurricane|tornado|earthquake|aftershock|outage|inspection|false\s*positives?|false\s*negatives?|precision|recall|confusion|misclassif)\b",
+    re.IGNORECASE,
+)
+
+EVALUATION_QUERY_PATTERN = re.compile(
+    r"\b(false\s*positives?|false\s*negatives?|confusion|precision|recall|misclassif|mismatch)\b",
     re.IGNORECASE,
 )
 
@@ -243,6 +259,69 @@ def _normalize_tile_id(raw_tile_id: str | None) -> str | None:
         return None
     # dataset_records stores values like santa-rosa-wildfire_00000000
     return raw_tile_id.replace("santa-rosa-wildfire_", "")
+
+
+@lru_cache(maxsize=1)
+def evaluation_rows() -> list[dict[str, str]]:
+    if not EVALUATION_CSV_PATH.exists():
+        return []
+
+    rows: list[dict[str, str]] = []
+    with EVALUATION_CSV_PATH.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            rows.append({k: (v or "").strip() for k, v in row.items()})
+    return rows
+
+
+def build_evaluation_context(message: str) -> str | None:
+    if not EVALUATION_QUERY_PATTERN.search(message):
+        return None
+
+    rows = evaluation_rows()
+    if not rows:
+        return "Evaluation data is not available on this server."
+
+    severe = {"major-damage", "destroyed"}
+    false_negatives: list[tuple[str, str, str]] = []
+    false_positives: list[tuple[str, str, str]] = []
+
+    for row in rows:
+        uid = row.get("uid", "")
+        true_label = row.get("true_label", "").lower()
+        pred_label = row.get("gemini_label", "").lower()
+        if not uid or not true_label or not pred_label:
+            continue
+
+        if true_label in severe and pred_label not in severe:
+            false_negatives.append((uid, true_label, pred_label))
+        if true_label not in severe and pred_label in severe:
+            false_positives.append((uid, true_label, pred_label))
+
+    fn_sample = false_negatives[:5]
+    fp_sample = false_positives[:5]
+
+    lines = [
+        "Evaluation mismatch context (derived from evaluation_results.csv):",
+        f"  False negatives (true severe, predicted not severe): {len(false_negatives)}",
+        f"  False positives (true not severe, predicted severe): {len(false_positives)}",
+    ]
+
+    if fn_sample:
+        lines.append("  Sample false-negative uids (true → predicted):")
+        for uid, true_label, pred_label in fn_sample:
+            lines.append(f"    - {uid} ({true_label} → {pred_label})")
+
+    if fp_sample:
+        lines.append("  Sample false-positive uids (true → predicted):")
+        for uid, true_label, pred_label in fp_sample:
+            lines.append(f"    - {uid} ({true_label} → {pred_label})")
+
+    lines.append(
+        "When asked for a specific example, pick a uid from the samples above."
+    )
+
+    return "\n".join(lines)
 
 
 def _meta_path(uid: str) -> Path:
@@ -332,12 +411,32 @@ def is_disaster_related(message: str, building_id: str | None = None, spatial_co
 
 
 async def build_reference_context(message: str) -> tuple[str | None, list[ReferenceSource]]:
+    search_results = await _search_web(message)
+    if search_results:
+        sources: list[ReferenceSource] = []
+        blocks: list[str] = []
+        for result in search_results[: max(1, min(settings.search_result_limit, 6))]:
+            url = result.get("url")
+            if not url:
+                continue
+            title = result.get("title") or "Search result"
+            summary = await _summarize_url(url, result.get("snippet"))
+            sources.append(ReferenceSource(title=title, url=url, summary=summary))
+            if summary:
+                blocks.append(f"- {title} ({url}): {summary}")
+            else:
+                blocks.append(f"- {title} ({url})")
+
+        if blocks:
+            return "External disaster references:\n" + "\n".join(blocks), sources
+
     keywords = {token for token in re.findall(r"[a-z]+", message.lower()) if len(token) > 2}
+    wants_fema = "fema" in keywords
 
     selected = [
         item
         for item in REFERENCE_LIBRARY
-        if keywords.intersection(item["keywords"]) or item["title"].lower().find("fema") >= 0
+        if keywords.intersection(item["keywords"]) or (wants_fema and "fema" in item["title"].lower())
     ][:2]
 
     if not selected:
@@ -347,14 +446,9 @@ async def build_reference_context(message: str) -> tuple[str | None, list[Refere
     blocks: list[str] = []
 
     for item in selected:
-        summary = item["fallback"]
-        try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                response = await client.get(item["url"])
-                response.raise_for_status()
-                summary = _summarize_external_html(response.text)
-        except Exception:
-            pass
+        summary = await _summarize_url(item["url"], item.get("fallback"))
+        if not summary:
+            summary = item.get("fallback")
 
         sources.append(ReferenceSource(title=item["title"], url=item["url"], summary=summary))
         blocks.append(f"- {item['title']} ({item['url']}): {summary}")
@@ -393,6 +487,165 @@ def _summarize_external_html(html_text: str) -> str:
     if len(snippet) > 260:
         snippet = snippet[:257].rsplit(" ", 1)[0] + "..."
     return f"{title}: {snippet}"
+
+
+def _friendly_chatbot_error(exc: Exception) -> str:
+    raw = str(exc)
+    payload = None
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            payload = ast.literal_eval(raw[start:end + 1])
+        except Exception:
+            payload = None
+
+    if isinstance(payload, dict):
+        err = payload.get("error", payload)
+        if isinstance(err, dict):
+            message = str(err.get("message", "")).strip()
+            retry = None
+            details = err.get("details") or []
+            for detail in details:
+                if isinstance(detail, dict) and str(detail.get("@type", "")).endswith("RetryInfo"):
+                    retry = detail.get("retryDelay")
+                    break
+
+            if message:
+                if retry:
+                    return f"Rate limit reached. {message} Retry after {retry}."
+                return f"Rate limit reached. {message}"
+
+    if "RESOURCE_EXHAUSTED" in raw or "429" in raw:
+        return (
+            "Rate limit reached. Please wait a bit and try again. "
+            "If this keeps happening, check your Gemini API quota."
+        )
+
+    return f"Chatbot error: {raw}"
+
+
+def _now() -> float:
+    return time.time()
+
+
+def _cache_get(cache: dict[str, tuple[float, Any]], key: str, ttl_seconds: int) -> Any | None:
+    entry = cache.get(key)
+    if not entry:
+        return None
+    created_at, value = entry
+    if _now() - created_at > ttl_seconds:
+        cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(cache: dict[str, tuple[float, Any]], key: str, value: Any) -> None:
+    cache[key] = (_now(), value)
+
+
+async def _search_web(message: str) -> list[dict[str, str | None]]:
+    provider = (settings.search_provider or "").strip().lower()
+    api_key = (settings.search_api_key or "").strip()
+    query = message.strip()
+
+    if not provider or provider == "none" or not api_key or not query:
+        return []
+
+    cached = _cache_get(search_cache, query, settings.search_cache_ttl_seconds)
+    if cached is not None:
+        return cached
+
+    limit = max(1, min(settings.search_result_limit, 6))
+    results: list[dict[str, str | None]] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if provider in {"bing", "bing-web", "bing_web"}:
+                endpoint = settings.search_endpoint_url or "https://api.bing.microsoft.com/v7.0/search"
+                response = await client.get(
+                    endpoint,
+                    params={"q": query, "count": limit, "mkt": "en-US", "safeSearch": "Moderate"},
+                    headers={"Ocp-Apim-Subscription-Key": api_key},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                for item in payload.get("webPages", {}).get("value", []):
+                    results.append(
+                        {
+                            "title": item.get("name"),
+                            "url": item.get("url"),
+                            "snippet": item.get("snippet"),
+                        }
+                    )
+            elif provider in {"serpapi", "serp"}:
+                endpoint = settings.search_endpoint_url or "https://serpapi.com/search"
+                response = await client.get(
+                    endpoint,
+                    params={"q": query, "engine": "google", "num": limit, "api_key": api_key},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                for item in payload.get("organic_results", []):
+                    results.append(
+                        {
+                            "title": item.get("title"),
+                            "url": item.get("link"),
+                            "snippet": item.get("snippet"),
+                        }
+                    )
+            elif provider in {"brave", "brave-search", "brave_search"}:
+                endpoint = settings.search_endpoint_url or "https://api.search.brave.com/res/v1/web/search"
+                response = await client.get(
+                    endpoint,
+                    params={
+                        "q": query,
+                        "count": limit,
+                        "search_lang": "en",
+                        "country": "US",
+                        "safesearch": "moderate",
+                    },
+                    headers={"X-Subscription-Token": api_key},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                items = payload.get("web", {}).get("results", []) or payload.get("results", [])
+                for item in items:
+                    results.append(
+                        {
+                            "title": item.get("title") or item.get("name"),
+                            "url": item.get("url") or item.get("link"),
+                            "snippet": item.get("description") or item.get("snippet"),
+                        }
+                    )
+    except Exception:
+        results = []
+
+    _cache_set(search_cache, query, results)
+    return results
+
+
+async def _summarize_url(url: str, fallback: str | None = None) -> str | None:
+    cached = _cache_get(summary_cache, url, settings.search_summary_cache_ttl_seconds)
+    if cached is not None:
+        return cached
+
+    summary: str | None = None
+    if fallback and len(fallback) >= 80:
+        summary = fallback
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                summary = _summarize_external_html(response.text)
+        except Exception:
+            summary = fallback
+
+    if summary:
+        _cache_set(summary_cache, url, summary)
+
+    return summary
 
 
 def _map_focus_from_building(context: BuildingContext | None) -> SpatialContext | None:
@@ -594,7 +847,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     bot = get_damage_chatbot()
     reference_context, sources = await build_reference_context(req.message)
-    combined_context = "\n\n".join(part for part in [req.extra_context, reference_context] if part)
+    evaluation_context = build_evaluation_context(req.message)
+    combined_context = "\n\n".join(
+        part for part in [req.extra_context, reference_context, evaluation_context] if part
+    )
 
     if settings.chat_endpoint_url:
         external = await request_external_json(
@@ -606,6 +862,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 "prediction": prediction.model_dump() if prediction else None,
                 "spatial_context": req.spatial_context.model_dump() if req.spatial_context else None,
                 "reference_context": reference_context,
+                "evaluation_context": evaluation_context,
             },
         )
         assistant_text = str(external.get("response", "No response from chat model."))
@@ -623,7 +880,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 extra_context=combined_context or None,
             )
         except Exception as exc:
-            assistant_text = f"Chatbot error: {exc}"
+            assistant_text = _friendly_chatbot_error(exc)
     else:
         # Final fallback when neither external chat nor the Gemini chatbot is configured.
         if prediction is not None:

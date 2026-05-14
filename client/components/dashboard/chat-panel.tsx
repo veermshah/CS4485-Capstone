@@ -7,8 +7,6 @@ import {
   History,
   Loader2,
   MessageSquare,
-  Mic,
-  MicOff,
   PencilLine,
   Plus,
   SendHorizonal,
@@ -180,11 +178,8 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState | null>(null);
-  const [isListening, setIsListening] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeThreadIdRef = useRef<string | null>(null);
-  const speechRecognitionRef = useRef<any>(null);
-  const speechSeedRef = useRef<string>("");
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
@@ -197,12 +192,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
   const turns = activeThread?.turns ?? [];
   const showSleepNotice = Boolean(activeThread?.sleepNoticeShown && turns.length > 0 && turns.length <= 2);
-  const speechSupported = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window),
-    [],
-  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -257,12 +246,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
   useEffect(() => {
     setEditing(null);
   }, [activeThreadId]);
-
-  useEffect(() => {
-    return () => {
-      speechRecognitionRef.current?.stop?.();
-    };
-  }, []);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -345,55 +328,9 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
     setEditing(null);
   };
 
-  const toggleListening = () => {
-    if (!speechSupported) return;
-
-    if (isListening) {
-      speechRecognitionRef.current?.stop();
-      return;
-    }
-
-    const SpeechRecognitionCtor =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) return;
-
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    speechSeedRef.current = message ? `${message.trimEnd()} ` : "";
-
-    recognition.onresult = (event: any) => {
-      let transcript = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        transcript += event.results[i][0]?.transcript ?? "";
-      }
-      const combined = `${speechSeedRef.current}${transcript}`.trimStart();
-      setMessage(combined);
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    speechRecognitionRef.current = recognition;
-    setIsListening(true);
-    recognition.start();
-  };
-
   const sendMessage = async (nextMessage: string) => {
     const text = nextMessage.trim();
     if (!text || isSending) return;
-
-    if (isListening) {
-      speechRecognitionRef.current?.stop();
-    }
 
     const threadId = ensureThreadId();
     const now = Date.now();
@@ -603,18 +540,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
             rows={1}
             className="min-h-9 max-h-32 resize-none"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={!speechSupported}
-            className={cn("h-9 w-9 shrink-0", isListening && "text-red-500")}
-            aria-label={isListening ? "Stop dictation" : "Start dictation"}
-            onClick={toggleListening}
-            title={speechSupported ? "Speech to text" : "Speech recognition not supported"}
-          >
-            {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-          </Button>
           <Button
             type="submit"
             size="icon"

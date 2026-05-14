@@ -7,8 +7,6 @@ import {
   History,
   Loader2,
   MessageSquare,
-  Mic,
-  MicOff,
   PencilLine,
   Plus,
   SendHorizonal,
@@ -180,13 +178,8 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState | null>(null);
-  const [isListening, setIsListening] = useState(false);
-  const [speechError, setSpeechError] = useState<string | null>(null);
-  const [speechSupported, setSpeechSupported] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeThreadIdRef = useRef<string | null>(null);
-  const speechRecognitionRef = useRef<any>(null);
-  const speechSeedRef = useRef<string>("");
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
@@ -199,13 +192,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
   const turns = activeThread?.turns ?? [];
   const showSleepNotice = Boolean(activeThread?.sleepNoticeShown && turns.length > 0 && turns.length <= 2);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setSpeechSupported(
-      "SpeechRecognition" in window || "webkitSpeechRecognition" in window,
-    );
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -260,12 +246,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
   useEffect(() => {
     setEditing(null);
   }, [activeThreadId]);
-
-  useEffect(() => {
-    return () => {
-      speechRecognitionRef.current?.stop?.();
-    };
-  }, []);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -348,95 +328,9 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
     setEditing(null);
   };
 
-  const toggleListening = async () => {
-    if (!speechSupported) {
-      setSpeechError("Speech recognition is not supported in this browser. Try Chrome or Edge.");
-      return;
-    }
-
-    if (isListening) {
-      speechRecognitionRef.current?.stop();
-      return;
-    }
-
-    const SpeechRecognitionCtor =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) {
-      setSpeechError("Speech recognition is not available in this browser.");
-      return;
-    }
-
-    setSpeechError(null);
-
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((track) => track.stop());
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : "Microphone permission denied.";
-        setSpeechError(detail);
-        setIsListening(false);
-        return;
-      }
-    }
-
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    speechSeedRef.current = message ? `${message.trimEnd()} ` : "";
-
-    recognition.onresult = (event: any) => {
-      let transcript = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        transcript += event.results[i][0]?.transcript ?? "";
-      }
-      const combined = `${speechSeedRef.current}${transcript}`.trimStart();
-      setMessage(combined);
-    };
-
-    recognition.onstart = () => {
-      setIsListening(true);
-      setSpeechError(null);
-    };
-
-    recognition.onerror = (event: any) => {
-      const code = event?.error ?? "unknown";
-      const messageByCode: Record<string, string> = {
-        "no-speech": "No speech detected. Please try again.",
-        "audio-capture": "No microphone was found or it is unavailable.",
-        "not-allowed": "Microphone access was blocked. Allow access and try again.",
-        "service-not-allowed": "Microphone access was blocked. Allow access and try again.",
-        "network": "Speech recognition failed due to a network error.",
-      };
-      setSpeechError(messageByCode[code] ?? "Speech recognition error. Please try again.");
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    speechRecognitionRef.current?.abort?.();
-    speechRecognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "Could not start speech recognition.";
-      setSpeechError(detail);
-      setIsListening(false);
-    }
-  };
-
   const sendMessage = async (nextMessage: string) => {
     const text = nextMessage.trim();
     if (!text || isSending) return;
-
-    if (isListening) {
-      speechRecognitionRef.current?.stop();
-    }
 
     const threadId = ensureThreadId();
     const now = Date.now();
@@ -647,18 +541,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
             className="min-h-9 max-h-32 resize-none"
           />
           <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={!speechSupported}
-            className={cn("h-9 w-9 shrink-0", isListening && "text-red-500")}
-            aria-label={isListening ? "Stop dictation" : "Start dictation"}
-            onClick={toggleListening}
-            title={speechSupported ? "Speech to text" : "Speech recognition not supported"}
-          >
-            {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-          </Button>
-          <Button
             type="submit"
             size="icon"
             disabled={isSending || !message.trim()}
@@ -672,11 +554,6 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
             )}
           </Button>
         </form>
-        {speechError && (
-          <div className="text-xs text-destructive">
-            {speechError}
-          </div>
-        )}
       </CardContent>
     </Card>
   );

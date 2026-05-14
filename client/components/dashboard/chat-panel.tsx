@@ -182,6 +182,7 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeThreadIdRef = useRef<string | null>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -198,12 +199,13 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
   const turns = activeThread?.turns ?? [];
   const showSleepNotice = Boolean(activeThread?.sleepNoticeShown && turns.length > 0 && turns.length <= 2);
-  const speechSupported = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window),
-    [],
-  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSpeechSupported(
+      "SpeechRecognition" in window || "webkitSpeechRecognition" in window,
+    );
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

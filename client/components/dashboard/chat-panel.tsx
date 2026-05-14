@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
-  "Zoom to Fountaingrove neighborhood and summarize damage",
+  "Zoom to the Fountain Grove neighborhood and summarize the damage.",
   "Where are the least damaged areas?",
   "Show false positives and false negatives.",
   "List potentially unsafe buildings.",

@@ -13,6 +13,7 @@ import {
 import { getEvaluationResults, type EvaluationResult } from "@/lib/evaluation-results-client-cache";
 
 const CLASS_ORDER = ["no-damage", "minor-damage", "major-damage", "destroyed"];
+const CLASS_SET = new Set(CLASS_ORDER);
 
 type Metrics = {
   total: number;
@@ -40,10 +41,15 @@ function prettifyLabel(label: string): string {
 }
 
 function computeMetrics(rows: EvaluationResult[]): Metrics {
-  const validRows = rows.filter((row) => normalizeLabel(row.true_label) && normalizeLabel(row.gemini_label));
+  const displayRows = rows.filter((row) => normalizeLabel(row.true_label) && normalizeLabel(row.gemini_label));
+  const classifiedRows = rows.filter((row) => {
+    const trueLabel = normalizeLabel(row.true_label);
+    const predLabel = normalizeLabel(row.gemini_label);
+    return CLASS_SET.has(trueLabel) && CLASS_SET.has(predLabel);
+  });
   const present = new Set<string>();
 
-  validRows.forEach((row) => {
+  displayRows.forEach((row) => {
     present.add(normalizeLabel(row.true_label));
     present.add(normalizeLabel(row.gemini_label));
   });
@@ -56,7 +62,7 @@ function computeMetrics(rows: EvaluationResult[]): Metrics {
   const confusion = labels.map(() => labels.map(() => 0));
   let correct = 0;
 
-  validRows.forEach((row) => {
+  displayRows.forEach((row) => {
     const trueLabel = normalizeLabel(row.true_label);
     const predLabel = normalizeLabel(row.gemini_label);
     const trueIndex = indexByLabel.get(trueLabel);
@@ -64,7 +70,7 @@ function computeMetrics(rows: EvaluationResult[]): Metrics {
     if (trueIndex == null || predIndex == null) return;
 
     confusion[trueIndex][predIndex] += 1;
-    if (trueIndex === predIndex) correct += 1;
+    if (CLASS_SET.has(trueLabel) && CLASS_SET.has(predLabel) && trueIndex === predIndex) correct += 1;
   });
 
   const supports = labels.map((_, i) => confusion[i].reduce((sum, value) => sum + value, 0));
@@ -72,12 +78,15 @@ function computeMetrics(rows: EvaluationResult[]): Metrics {
     confusion.reduce((sum, row) => sum + row[j], 0),
   );
 
-  const total = validRows.length;
+  const total = rows.length;
+  const classifiedTotal = classifiedRows.length;
   const perClassPrecision: number[] = [];
   const perClassRecall: number[] = [];
   const perClassF1: number[] = [];
 
   labels.forEach((_, i) => {
+    if (!CLASS_SET.has(labels[i])) return;
+
     const tp = confusion[i][i];
     const fp = predictedTotals[i] - tp;
     const fn = supports[i] - tp;
@@ -94,7 +103,7 @@ function computeMetrics(rows: EvaluationResult[]): Metrics {
 
   return {
     total,
-    accuracy: total ? correct / total : 0,
+    accuracy: classifiedTotal ? correct / classifiedTotal : 0,
     precision: avg(perClassPrecision),
     recall: avg(perClassRecall),
     f1: avg(perClassF1),

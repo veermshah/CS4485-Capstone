@@ -365,7 +365,7 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
     speechSeedRef.current = message ? `${message.trimEnd()} ` : "";
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: any) => {
       let transcript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         transcript += event.results[i][0]?.transcript ?? "";

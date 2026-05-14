@@ -109,14 +109,16 @@ const MARKDOWN_COMPONENTS: Components = {
       {children}
     </a>
   ),
-  code: ({ children, className, inline }) =>
-    inline ? (
+  code: ({ children, className }) => {
+    const isBlock = /language-/.test(className ?? "");
+    return isBlock ? (
+      <code className={cn("font-mono text-[0.8em]", className)}>{children}</code>
+    ) : (
       <code className={cn("rounded bg-foreground/10 px-1 py-0.5 font-mono text-[0.8em]", className)}>
         {children}
       </code>
-    ) : (
-      <code className={cn("font-mono text-[0.8em]", className)}>{children}</code>
-    ),
+    );
+  },
   pre: ({ children }) => (
     <pre className="overflow-x-auto rounded-lg bg-foreground/10 p-2 text-[0.8em] leading-relaxed">
       {children}
@@ -363,7 +365,7 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
     speechSeedRef.current = message ? `${message.trimEnd()} ` : "";
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: any) => {
       let transcript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         transcript += event.results[i][0]?.transcript ?? "";
@@ -398,7 +400,7 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
     const explicitUid = extractUid(text);
     updateThread(threadId, (thread) => {
-      const nextTurns = [...thread.turns, { role: "user", text, timestamp: now }];
+      const nextTurns = [...thread.turns, { role: "user" as const, text, timestamp: now }];
       const showNotice = !thread.sleepNoticeShown;
 
       const title =

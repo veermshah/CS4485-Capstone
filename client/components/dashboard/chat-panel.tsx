@@ -109,14 +109,16 @@ const MARKDOWN_COMPONENTS: Components = {
       {children}
     </a>
   ),
-  code: ({ children, className, inline }) =>
-    inline ? (
+  code: ({ children, className }) => {
+    const isBlock = /language-/.test(className ?? "");
+    return isBlock ? (
+      <code className={cn("font-mono text-[0.8em]", className)}>{children}</code>
+    ) : (
       <code className={cn("rounded bg-foreground/10 px-1 py-0.5 font-mono text-[0.8em]", className)}>
         {children}
       </code>
-    ) : (
-      <code className={cn("font-mono text-[0.8em]", className)}>{children}</code>
-    ),
+    );
+  },
   pre: ({ children }) => (
     <pre className="overflow-x-auto rounded-lg bg-foreground/10 p-2 text-[0.8em] leading-relaxed">
       {children}

@@ -60,20 +60,34 @@ function setCachedTile(cacheKey: string, value: Buffer): void {
   }
 }
 
+const SOURCE_FETCH_MAX_ATTEMPTS = 3;
+const SOURCE_FETCH_RETRY_BASE_MS = 150;
+
 async function getSourceImageBuffer(imageUrl: string): Promise<Buffer | null> {
   const cached = sourceImageCache.get(imageUrl);
   if (cached && Date.now() - cached.createdAt <= SOURCE_IMAGE_CACHE_TTL_MS) {
     return cached.value;
   }
 
-  const response = await fetch(imageUrl, { cache: "force-cache" });
-  if (!response.ok) return null;
+  for (let attempt = 0; attempt < SOURCE_FETCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(imageUrl, { cache: "force-cache" });
+      if (response.ok) {
+        const bytes = await response.arrayBuffer();
+        const buffer = Buffer.from(bytes);
+        sourceImageCache.set(imageUrl, { value: buffer, createdAt: Date.now() });
+        return buffer;
+      }
+    } catch {
+      // network/abort error — fall through to retry
+    }
 
-  const bytes = await response.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  sourceImageCache.set(imageUrl, { value: buffer, createdAt: Date.now() });
+    if (attempt < SOURCE_FETCH_MAX_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, SOURCE_FETCH_RETRY_BASE_MS * Math.pow(2, attempt)));
+    }
+  }
 
-  return buffer;
+  return null;
 }
 
 // A 256×256 fully-transparent PNG returned for tiles with no data.
@@ -129,8 +143,11 @@ export async function GET(
   const north = tile2lat(y, z);
   const south = tile2lat(y + 1, z);
 
-  // Build composite layers
+  // Build composite layers. Track whether every overlapping source actually
+  // contributed — partial results must not be cached, since they would
+  // permanently freeze in missing patches.
   const composites: sharp.OverlayOptions[] = [];
+  let allSourcesContributed = true;
 
   for (const source of overlapping) {
     const crop = computeSourceCrop(source.corners, west, east, north, south);
@@ -142,7 +159,10 @@ export async function GET(
 
     try {
       const sourceBuffer = await getSourceImageBuffer(source.imageUrl);
-      if (!sourceBuffer) continue;
+      if (!sourceBuffer) {
+        allSourcesContributed = false;
+        continue;
+      }
 
       const cropped = await sharp(sourceBuffer)
         .extract({
@@ -161,7 +181,7 @@ export async function GET(
         top: Math.max(0, Math.round(dstTop)),
       });
     } catch {
-      // Skip this source if there's a read/crop error
+      allSourcesContributed = false;
     }
   }
 
@@ -181,7 +201,9 @@ export async function GET(
     .png()
     .toBuffer();
 
-  setCachedTile(cacheKey, output);
+  if (allSourcesContributed) {
+    setCachedTile(cacheKey, output);
+  }
 
   return pngResponse(output);
 }

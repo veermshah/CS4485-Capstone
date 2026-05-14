@@ -181,6 +181,7 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
   const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeThreadIdRef = useRef<string | null>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -345,8 +346,11 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
     setEditing(null);
   };
 
-  const toggleListening = () => {
-    if (!speechSupported) return;
+  const toggleListening = async () => {
+    if (!speechSupported) {
+      setSpeechError("Speech recognition is not supported in this browser. Try Chrome or Edge.");
+      return;
+    }
 
     if (isListening) {
       speechRecognitionRef.current?.stop();
@@ -356,7 +360,24 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
     const SpeechRecognitionCtor =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) return;
+    if (!SpeechRecognitionCtor) {
+      setSpeechError("Speech recognition is not available in this browser.");
+      return;
+    }
+
+    setSpeechError(null);
+
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "Microphone permission denied.";
+        setSpeechError(detail);
+        setIsListening(false);
+        return;
+      }
+    }
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = "en-US";
@@ -367,14 +388,28 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
 
     recognition.onresult = (event: any) => {
       let transcript = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      for (let i = 0; i < event.results.length; i += 1) {
         transcript += event.results[i][0]?.transcript ?? "";
       }
       const combined = `${speechSeedRef.current}${transcript}`.trimStart();
       setMessage(combined);
     };
 
-    recognition.onerror = () => {
+    recognition.onstart = () => {
+      setIsListening(true);
+      setSpeechError(null);
+    };
+
+    recognition.onerror = (event: any) => {
+      const code = event?.error ?? "unknown";
+      const messageByCode: Record<string, string> = {
+        "no-speech": "No speech detected. Please try again.",
+        "audio-capture": "No microphone was found or it is unavailable.",
+        "not-allowed": "Microphone access was blocked. Allow access and try again.",
+        "service-not-allowed": "Microphone access was blocked. Allow access and try again.",
+        "network": "Speech recognition failed due to a network error.",
+      };
+      setSpeechError(messageByCode[code] ?? "Speech recognition error. Please try again.");
       setIsListening(false);
     };
 
@@ -382,9 +417,15 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
       setIsListening(false);
     };
 
+    speechRecognitionRef.current?.abort?.();
     speechRecognitionRef.current = recognition;
-    setIsListening(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Could not start speech recognition.";
+      setSpeechError(detail);
+      setIsListening(false);
+    }
   };
 
   const sendMessage = async (nextMessage: string) => {
@@ -629,6 +670,11 @@ export function ChatPanel({ className, selectedBuildingId, onMapFocus }: ChatPan
             )}
           </Button>
         </form>
+        {speechError && (
+          <div className="text-xs text-destructive">
+            {speechError}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

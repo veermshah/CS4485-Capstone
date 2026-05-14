@@ -174,7 +174,7 @@ export function DetailsDrawer({
           <div className="h-[calc(100%-94px)] overflow-y-auto px-5 py-4">
             <Tabs defaultValue="overview" className="h-full">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="overview">Home</TabsTrigger>
                 <TabsTrigger value="imagery">Imagery</TabsTrigger>
               </TabsList>
 

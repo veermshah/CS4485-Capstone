@@ -83,6 +83,19 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+
+    void fetch("/api/backend-health", {
+      cache: "no-store",
+      signal: controller.signal,
+    }).catch(() => {
+      // Best-effort ping to wake the backend.
+    });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(FLAG_STORAGE_KEY, JSON.stringify(flaggedBuildingIds));
     } catch {

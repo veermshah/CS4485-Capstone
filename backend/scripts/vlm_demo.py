@@ -31,27 +31,14 @@ JSON Schema:
 
 
 def _parse_vlm_response(raw_text: str) -> dict:
-    """Extract and parse the JSON object from the model's raw text output.
-
-    Handles responses wrapped in markdown code fences (```json ... ```) as
-    well as bare JSON strings.
-    """
     text = raw_text.strip()
-
-    # Strip markdown code fences if present
     fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fenced:
         text = fenced.group(1).strip()
-
     return json.loads(text)
 
 
 def generate(pre_disaster_path: str, post_disaster_path: str) -> dict:
-    """Run the Gemini VLM on a pre/post image pair and return the parsed result.
-
-    Returns a dict with keys: building_id, damage_level, confidence_score, reasoning.
-    Raises ValueError if the model response cannot be parsed as JSON.
-    """
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
     pre_image = Image.open(pre_disaster_path)
@@ -84,7 +71,7 @@ def generate(pre_disaster_path: str, post_disaster_path: str) -> dict:
 
 
 if __name__ == "__main__":
-    PRE_PATH = "santa-rosa-wildfire_00000119_pre_disaster.png"
-    POST_PATH = "santa-rosa-wildfire_00000119_post_disaster.png"
-    result = generate(PRE_PATH, POST_PATH)
+    pre_path = "santa-rosa-wildfire_00000119_pre_disaster.png"
+    post_path = "santa-rosa-wildfire_00000119_post_disaster.png"
+    result = generate(pre_path, post_path)
     print(json.dumps(result, indent=2))

@@ -7,7 +7,11 @@
  */
 
 import { NextResponse } from "next/server";
-import { buildSpatialContext } from "@/lib/server/chat-spatial-context";
+import {
+  buildUidLookupContext,
+  buildSelectedBuildingContext,
+  buildSpatialContext,
+} from "@/lib/server/chat-spatial-context";
 
 export const runtime = "nodejs";
 
@@ -48,13 +52,35 @@ export async function POST(request: Request) {
   // Pre-compute geographic context (hotspots, address proximity, etc.) from
   // the buildings GeoJSON the map already serves. Best-effort — if it fails,
   // we just send the message through without spatial context.
+  const baseUrl = new URL(request.url).origin;
+
   let spatialContext: Awaited<ReturnType<typeof buildSpatialContext>> = null;
   try {
-    const baseUrl = new URL(request.url).origin;
     spatialContext = await buildSpatialContext(message, baseUrl);
   } catch {
     spatialContext = null;
   }
+
+  let uidContext: Awaited<ReturnType<typeof buildUidLookupContext>> = null;
+  try {
+    uidContext = await buildUidLookupContext(message, baseUrl);
+  } catch {
+    uidContext = null;
+  }
+
+  let selectedBuildingContext: Awaited<ReturnType<typeof buildSelectedBuildingContext>> = null;
+  try {
+    if (body.building_id) {
+      selectedBuildingContext = await buildSelectedBuildingContext(body.building_id, baseUrl);
+    }
+  } catch {
+    selectedBuildingContext = null;
+  }
+
+  const extraContext = [spatialContext?.prompt, uidContext?.prompt, selectedBuildingContext?.prompt]
+    .filter((block): block is string => Boolean(block))
+    .join("\n\n");
+  const focus = spatialContext?.focus ?? uidContext?.focus ?? selectedBuildingContext?.focus ?? null;
 
   let response: Response;
   try {
@@ -65,8 +91,8 @@ export async function POST(request: Request) {
         message,
         building_id: body.building_id ?? null,
         conversation_id: body.conversation_id ?? null,
-        extra_context: spatialContext?.prompt ?? null,
-        spatial_context: spatialContext?.focus ?? null,
+        extra_context: extraContext || null,
+        spatial_context: focus,
       }),
     });
   } catch (err) {
@@ -108,7 +134,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     conversation_id: payload.conversation_id ?? "",
     response: payload.response ?? "",
-    map_focus: payload.map_focus ?? spatialContext?.focus ?? null,
+    map_focus: payload.map_focus ?? focus,
     sources: payload.sources ?? [],
   });
 }

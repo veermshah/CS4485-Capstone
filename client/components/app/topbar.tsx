@@ -22,7 +22,7 @@ export function Topbar() {
 
         <nav className="ml-2 flex items-center gap-1">
           <Button asChild variant="ghost" size="sm">
-            <Link href="/">Overview</Link>
+            <Link href="/">Home</Link>
           </Button>
           <Button asChild variant="ghost" size="sm">
             <Link href="/metrics">Metrics</Link>

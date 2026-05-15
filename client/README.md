@@ -7,7 +7,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 Set the bucket base URL in `client/.env.local`:
 
 ```bash
-FIRELENS_DATA_BASE_URL=https://a23c3afdfb9d5e504682c1c772cc2e39.r2.cloudflarestorage.com/firelens-data
+FIRELENS_DATA_BASE_URL=
 ```
 
 The app will fetch:
